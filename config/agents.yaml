@@ -1,0 +1,108 @@
+# The agent "family" for the demo: a fictional telecom provider's phone line.
+# This file IS the family — add, remove, or re-nest an agent by editing it
+# (or via `voice-orchestrator agents add/remove`), no code changes needed.
+#
+# Each node:
+#   eligibility  — Level-1 gate expression (routing/gate.py), "" = always eligible
+#   triggers     — Level-2 keyword list (routing/classifier.py)
+#   tools        — ids resolved against tools/__init__.py's REGISTRY
+#   knowledge    — markdown files (data/knowledge/) for the knowledge_lookup tool
+#   children     — nested sub-agents (recursion all the way down)
+root:
+  id: router
+  name: "Receptionist"
+  description: "Greets the caller and figures out which department they need."
+  system_prompt: >
+    You are the receptionist for Meridian Telecom's customer line. Greet
+    callers briefly, understand what they need, and route them — don't try
+    to solve billing, sales, or technical problems yourself.
+  tools: ["transfer_to_human"]
+  children:
+    - id: billing
+      name: "Billing Agent"
+      description: "Handles invoices, payments, balance, and refund questions."
+      eligibility: "authenticated == true"
+      triggers:
+        - bollett
+        - fattur
+        - pagament
+        - pag
+        - sald
+        - addebit
+        - rimbors
+        - costo mensile
+        - scadenz
+      tools: ["check_account_status", "knowledge_lookup", "transfer_to_human"]
+      knowledge: ["billing_policy.md"]
+      system_prompt: >
+        You are Meridian Telecom's billing agent. Answer only from the
+        account lookup and knowledge base you're given — never invent a
+        figure. Be precise about amounts and dates.
+
+    - id: sales
+      name: "Sales & Upgrades Agent"
+      description: "Handles new plans, upgrades, and current promotions."
+      triggers:
+        - upgrad
+        - nuovo piano
+        - promozion
+        - passare a
+        - attiv
+        - offert
+        - cambiare piano
+      tools: ["knowledge_lookup", "transfer_to_human"]
+      knowledge: ["plans_and_offers.md"]
+      system_prompt: >
+        You are Meridian Telecom's sales agent. Explain plans and offers
+        accurately from the knowledge base; don't promise discounts that
+        aren't in it.
+
+    - id: tech_support
+      name: "Technical Support"
+      description: "Handles connectivity and hardware problems; routes to the right specialist."
+      triggers:
+        - non funziona
+        - problema
+        - si è rotto
+        - non si connette
+        - guasto
+      tools: ["transfer_to_human"]
+      system_prompt: >
+        You are the Technical Support triage agent. Figure out whether this
+        is an internet/connectivity issue or a TV/decoder issue and route
+        accordingly — you don't troubleshoot directly yourself.
+      children:
+        - id: tech_internet
+          name: "Internet Connectivity Support"
+          description: "Wifi, router, modem, and broadband connectivity troubleshooting."
+          triggers:
+            - wifi
+            - router
+            - modem
+            - internet
+            - connession
+            - banda larga
+            - fibr
+            - lent
+          tools: ["knowledge_lookup", "transfer_to_human"]
+          knowledge: ["internet_troubleshooting.md"]
+          system_prompt: >
+            You are Meridian Telecom's internet troubleshooting specialist.
+            Walk the caller through the knowledge-base steps in order; don't
+            skip ahead.
+
+        - id: tech_tv
+          name: "TV & Set-Top-Box Support"
+          description: "Decoder/set-top-box and TV channel troubleshooting."
+          triggers:
+            - decoder
+            - televis
+            - canal
+            - set-top
+            - telecomand
+            - tv
+          tools: ["knowledge_lookup", "transfer_to_human"]
+          knowledge: ["tv_troubleshooting.md"]
+          system_prompt: >
+            You are Meridian Telecom's TV/decoder troubleshooting specialist.
+            Walk the caller through the knowledge-base steps in order.
