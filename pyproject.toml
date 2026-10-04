@@ -29,7 +29,15 @@ voice = [
   "livekit-plugins-elevenlabs>=1.8",
   "livekit-plugins-silero>=1.8",
 ]
-dev = ["pytest>=8.0"]
+# The agent-builder web API (src/voice_orchestrator/webapi/) — a FastAPI
+# backend over a SQLite-backed copy of the agent family, for the React
+# frontend in web/. Nothing else in this project imports any of these.
+webapi = [
+  "fastapi>=0.110",
+  "uvicorn[standard]>=0.29",
+  "sqlalchemy>=2.0",
+]
+dev = ["pytest>=8.0", "httpx>=0.27"]
 
 [project.scripts]
 voice-orchestrator = "voice_orchestrator.cli:app"

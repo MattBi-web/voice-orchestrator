@@ -23,3 +23,13 @@ PROVIDER = os.environ.get("VOICE_ORCH_PROVIDER", "fake")
 # production sizing — raise it with this env var once you trust the setup.
 MAX_CALL_MINUTES_PER_DAY = float(os.environ.get("VOICE_ORCH_MAX_CALL_MINUTES_PER_DAY", "60"))
 USAGE_FILE = Path(os.environ.get("VOICE_ORCH_USAGE_FILE", ROOT / "data" / "usage_log.json"))
+
+# The web agent-builder's own store (webapi/). Deliberately separate from
+# AGENTS_FILE above: the CLI/tests keep reading config/agents.yaml exactly as
+# before (nothing about the existing, already-tested text core changes), and
+# the web API owns this SQLite file as the canonical copy an editor UI can
+# safely read-modify-write. A one-time import (webapi/seed.py) copies
+# agents.yaml's family into this database the first time it's empty — see
+# the README's "Agent builder" section for the two-sources-of-truth trade-off
+# this implies.
+WEBAPI_DB_FILE = Path(os.environ.get("VOICE_ORCH_WEBAPI_DB_FILE", ROOT / "data" / "agents.db"))

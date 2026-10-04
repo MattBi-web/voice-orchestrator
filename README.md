@@ -274,6 +274,67 @@ access, and talk to Meridian Telecom's receptionist live, no phone number or SIP
 a first test. `start` instead of `dev` is the long-lived-worker mode for when real rooms/SIP
 trunking get wired in later.
 
+## Agent builder: a web UI on the same core
+
+Everything above — the router, the agent family, memory, tools, the voice layer — is reachable
+only through `agents.yaml` and the CLI. `src/voice_orchestrator/webapi/` (FastAPI) and `web/`
+(React + Vite + TypeScript) add a second way in: a browser UI to create, edit, and delete agents
+in the family tree, and a "try it" box that runs a real utterance through the actual router —
+without hand-editing YAML or restarting anything. This is the product-layer gap between a CLI demo
+and something that resembles an ElevenLabs Agents / Vapi dashboard; the routing engine underneath
+is unchanged.
+
+**Dual source of truth, on purpose.** `config/agents.yaml` stays exactly what it was — the
+CLI's and test suite's source of truth, never touched by the web layer. The web UI reads and
+writes a separate SQLite database (`data/agents.db`, gitignored — it's a developer's own edited
+family, not something to commit), seeded once from `agents.yaml` the first time it's empty
+(`webapi/seed.py`'s `seed_if_empty()` — idempotent, safe to call on every startup, so a server
+restart never wipes edits made through the UI). The two are **not** unified in this phase: doing
+that would mean changing already-tested CLI code to serve a newer, less-tested UI layer. A
+reasonable next step, not done here. If you edit agents through the UI and want that reflected in
+`agents.yaml` too (e.g. to commit it), there's no automatic sync yet — treat the two as separate
+environments (YAML = what ships in the repo as the demo family; SQLite = your local playground).
+
+**What's actually stored.** `webapi/models.py`'s `AgentRow` mirrors `AgentSpec` (`agents/registry.py`)
+field-for-field, with one simplification: `triggers`/`tools`/`knowledge` are stored as JSON text on
+the agent's own row rather than normalized child tables, because nothing in this UI queries or
+filters on them independently of their parent agent — every read and write handles them as one
+unit, same as a form submit does.
+
+**No duplicated routing logic.** `POST /api/test/route` doesn't reimplement or approximate
+routing — it rebuilds the real `AgentSpec` tree from SQLite and calls the actual
+`orchestrator.handle_turn()` against `FakeProvider`, the same zero-API-key path `chat`/`route`
+use. The UI's "try it" box is exactly as trustworthy as the CLI's `route` command, because it's
+the same code.
+
+**Running it** (two servers, both local-dev only — the FastAPI app's CORS only allows
+`localhost:5173`, and it has no auth, so don't expose it on the open internet as-is):
+
+```
+# Terminal 1 — backend (installs fastapi/uvicorn/sqlalchemy)
+pip install -e ".[webapi]"
+uvicorn voice_orchestrator.webapi.app:app --reload --port 8000
+
+# Terminal 2 — frontend
+cd web
+npm install
+npm run dev
+```
+
+Open `http://localhost:5173`. The Vite dev server proxies `/api/*` to `localhost:8000`
+(`web/vite.config.ts`), so there's no CORS fiddling in dev. The left pane is the agent tree
+(click to edit, `+` to add a child under any node); the right pane is the edit/create form plus
+the "try it" box, wired to `POST /api/test/route`. `tests/test_webapi.py` (13 tests, `TestClient`
+against a temp SQLite file) covers the full CRUD surface, the auto-seed-once behavior, and both the
+happy and error paths (duplicate id, missing parent, delete-the-root, delete-with-children).
+
+**Deliberately not here (yet):** a live-call test console (voice, not just text), a call-log/
+analytics dashboard (would need persisting `CallSession`/`usage_guard` history, which today is
+in-memory or a single JSON counter — not a queryable log), phone-number provisioning, and
+multi-tenant auth/billing. None of these are what differentiates this project (the routing thesis
+and the clean core do that); they're the genuinely-different-scale infrastructure gap between a
+portfolio demo and ElevenLabs Agents/Vapi that no amount of UI polish closes.
+
 ## LLM providers: one abstraction, a free default
 
 `llm.py`'s `LLMProvider` ABC has three methods — `classify`, `respond`, `summarize` — kept

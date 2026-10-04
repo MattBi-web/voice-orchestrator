@@ -1,0 +1,288 @@
+.app {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 24px;
+}
+
+.app__header {
+  margin-bottom: 20px;
+}
+
+.app__subtitle {
+  color: var(--text);
+  opacity: 0.75;
+  font-size: 13px;
+}
+
+.app__error {
+  margin-bottom: 16px;
+}
+
+.app__hint {
+  color: var(--text);
+  opacity: 0.6;
+  padding: 24px 0;
+}
+
+.app__layout {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: 24px;
+  align-items: start;
+}
+
+.app__sidebar {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px;
+  background: var(--bg-muted);
+  position: sticky;
+  top: 24px;
+}
+
+.app__main {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  min-width: 0;
+}
+
+/* ---- Tree ---- */
+
+.tree {
+  display: flex;
+  flex-direction: column;
+}
+
+.tree-empty {
+  padding: 12px;
+  opacity: 0.6;
+}
+
+.tree-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 6px;
+}
+
+.tree-row:hover {
+  background: var(--accent-bg);
+}
+
+.tree-row--selected {
+  background: var(--accent-bg);
+  font-weight: 600;
+}
+
+.tree-row__label {
+  flex: 1;
+  text-align: left;
+  background: none;
+  border: none;
+  padding: 6px 4px;
+  color: inherit;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tree-row__badge {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  flex-shrink: 0;
+}
+
+.tree-row__add {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  width: 22px;
+  height: 22px;
+  line-height: 1;
+  color: var(--text);
+  flex-shrink: 0;
+}
+
+.tree-row__add:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* ---- Forms ---- */
+
+.agent-form,
+.test-box {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 20px;
+}
+
+.field {
+  margin-bottom: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.field label {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  opacity: 0.7;
+}
+
+.field input,
+.field textarea,
+.field select {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  background: var(--bg);
+  color: var(--text-h);
+}
+
+.field input:focus,
+.field textarea:focus,
+.field select:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.list-row,
+.tools-row {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.list-row input {
+  flex: 1;
+}
+
+.tools-row select {
+  flex: 0 0 180px;
+}
+
+.tools-row input {
+  flex: 1;
+}
+
+.btn-icon {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  width: 30px;
+  flex-shrink: 0;
+  color: var(--danger);
+}
+
+.btn-link {
+  background: none;
+  border: none;
+  color: var(--accent);
+  padding: 4px 0;
+  text-align: left;
+  font-size: 13px;
+}
+
+.form-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.form-actions button[type='submit'] {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 8px 18px;
+  font-weight: 600;
+}
+
+.btn-secondary {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 18px;
+  color: var(--text);
+}
+
+.btn-danger {
+  background: none;
+  border: 1px solid var(--danger);
+  border-radius: 6px;
+  padding: 8px 18px;
+  color: var(--danger);
+  margin-left: auto;
+}
+
+.error {
+  color: var(--danger);
+  background: rgba(192, 57, 43, 0.1);
+  border: 1px solid var(--danger);
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 13px;
+  margin-bottom: 14px;
+}
+
+/* ---- Test box ---- */
+
+.test-box__row {
+  display: flex;
+  gap: 12px;
+}
+
+.test-box__row .field {
+  flex: 1;
+}
+
+.test-result {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.test-result dl {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: 8px 12px;
+  margin: 0;
+}
+
+.test-result dt {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  opacity: 0.7;
+}
+
+.test-result dd {
+  margin: 0;
+}
+
+.test-result__reply {
+  white-space: pre-wrap;
+}
+
+@media (max-width: 800px) {
+  .app__layout {
+    grid-template-columns: 1fr;
+  }
+  .app__sidebar {
+    position: static;
+  }
+}

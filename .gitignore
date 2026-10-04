@@ -5,3 +5,10 @@ __pycache__/
 .env
 .pytest_cache/
 .DS_Store
+# The web agent-builder's local database — a developer's own edited agent
+# family, not source to commit (config/agents.yaml stays the one checked-in
+# starting point; see webapi/db.py's docstring).
+data/agents.db
+# Node / Vite frontend (web/)
+web/node_modules/
+web/dist/
