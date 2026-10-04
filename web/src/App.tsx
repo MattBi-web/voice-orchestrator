@@ -5,6 +5,7 @@ import { findAgent } from './tree'
 import { Tree } from './components/Tree'
 import { AgentForm } from './components/AgentForm'
 import { TestBox } from './components/TestBox'
+import { VoiceTestConsole } from './components/VoiceTestConsole'
 import './App.css'
 
 type Selection =
@@ -12,7 +13,10 @@ type Selection =
   | { kind: 'edit'; agentId: string }
   | { kind: 'create'; parentId: string }
 
+type View = 'builder' | 'voice'
+
 function App() {
+  const [view, setView] = useState<View>('builder')
   const [root, setRoot] = useState<Agent | null>(null)
   const [tools, setTools] = useState<string[]>([])
   const [selection, setSelection] = useState<Selection>({ kind: 'none' })
@@ -59,11 +63,29 @@ function App() {
           Editing the SQLite-backed agent family (seeded once from{' '}
           <code>config/agents.yaml</code>, then independent of it).
         </p>
+        <nav className="app__tabs">
+          <button
+            type="button"
+            className={view === 'builder' ? 'app__tab app__tab--active' : 'app__tab'}
+            onClick={() => setView('builder')}
+          >
+            Agent builder
+          </button>
+          <button
+            type="button"
+            className={view === 'voice' ? 'app__tab app__tab--active' : 'app__tab'}
+            onClick={() => setView('voice')}
+          >
+            Test live (voce)
+          </button>
+        </nav>
       </header>
 
       {error && <p className="error app__error">{error}</p>}
 
-      {loading ? (
+      {view === 'voice' ? (
+        <VoiceTestConsole />
+      ) : loading ? (
         <p>Loading…</p>
       ) : (
         <div className="app__layout">

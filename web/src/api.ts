@@ -1,4 +1,4 @@
-import type { Agent, AgentInput, AgentUpdateInput, TestRouteResult } from './types'
+import type { Agent, AgentInput, AgentUpdateInput, TestRouteResult, VoiceStatus, VoiceToken } from './types'
 
 // Every function here throws ApiError on a non-2xx response, with the
 // backend's own `detail` message (FastAPI's HTTPException shape) attached
@@ -49,4 +49,6 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ utterance, start_agent_id: startAgentId, channel }),
     }),
+  getVoiceStatus: () => request<VoiceStatus>('/api/voice/status'),
+  getVoiceToken: () => request<VoiceToken>('/api/voice/token', { method: 'POST' }),
 }

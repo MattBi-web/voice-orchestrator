@@ -24,7 +24,7 @@ from ..llm import FakeProvider
 from ..orchestrator import handle_turn
 from ..state import CallSession
 from ..tools import REGISTRY
-from . import repository, seed
+from . import repository, seed, voice_token
 from .db import get_session
 from .models import AgentRow
 from .repository import AgentInput
@@ -78,6 +78,29 @@ def health() -> dict:
 @app.get("/api/tools")
 def list_tools() -> dict:
     return {"tools": sorted(REGISTRY)}
+
+
+@app.get("/api/voice/status")
+def voice_status() -> dict:
+    """Whether LIVEKIT_URL/API_KEY/API_SECRET are set — the frontend uses
+    this to grey out the live voice console with a helpful message instead
+    of letting a click fail with an opaque network error."""
+    return {"configured": voice_token.is_configured()}
+
+
+@app.post("/api/voice/token")
+def voice_token_endpoint() -> dict:
+    """Issues one short-lived LiveKit room token per call, exactly what the
+    hosted Agents Playground's own backend does — see voice_token.py's
+    docstring for why a running worker, not this endpoint, is what actually
+    answers the call."""
+    if not voice_token.is_configured():
+        raise HTTPException(
+            400,
+            "LIVEKIT_URL/LIVEKIT_API_KEY/LIVEKIT_API_SECRET non sono impostate "
+            "lato backend — vedi la sezione 'Voice layer' del README.",
+        )
+    return voice_token.mint()
 
 
 @app.get("/api/agents")

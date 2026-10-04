@@ -55,3 +55,14 @@ export interface TestRouteResult {
   reply: string
   tool_ids_used: string[]
 }
+
+export interface VoiceStatus {
+  configured: boolean
+}
+
+export interface VoiceToken {
+  token: string
+  url: string
+  room: string
+  identity: string
+}

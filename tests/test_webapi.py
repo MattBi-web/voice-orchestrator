@@ -5,9 +5,11 @@ uses — and so tests can run in any order without seeing each other's data.
 """
 from __future__ import annotations
 
+import jwt
 import pytest
 from fastapi.testclient import TestClient
 
+from voice_orchestrator import config
 from voice_orchestrator.webapi import db
 from voice_orchestrator.webapi.app import app
 
@@ -126,3 +128,38 @@ def test_test_route_can_start_from_a_specific_agent(client):
 def test_test_route_unknown_start_agent_is_404(client):
     r = client.post("/api/test/route", json={"utterance": "ciao", "start_agent_id": "nope"})
     assert r.status_code == 404
+
+
+def test_voice_status_reports_not_configured_by_default(client):
+    """No LIVEKIT_* env vars in the test environment — the console should
+    report itself as unavailable rather than letting a token request fail
+    with an opaque error."""
+    assert client.get("/api/voice/status").json() == {"configured": False}
+
+
+def test_voice_token_without_credentials_is_400(client):
+    r = client.post("/api/voice/token")
+    assert r.status_code == 400
+
+
+def test_voice_token_with_credentials_mints_a_room_scoped_jwt(client, monkeypatch):
+    monkeypatch.setattr(config, "LIVEKIT_URL", "wss://example.livekit.cloud")
+    monkeypatch.setattr(config, "LIVEKIT_API_KEY", "APItest")
+    monkeypatch.setattr(config, "LIVEKIT_API_SECRET", "s3cr3t-with-enough-length")
+    assert client.get("/api/voice/status").json() == {"configured": True}
+
+    r = client.post("/api/voice/token")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["url"] == "wss://example.livekit.cloud"
+    assert body["room"].startswith("webtest-")
+
+    # Decode for real (not just "is it a string") — proves the JWT actually
+    # grants exactly the room/identity the response claims, the same shape
+    # livekit-client in the browser will check.
+    payload = jwt.decode(
+        body["token"], "s3cr3t-with-enough-length", algorithms=["HS256"], options={"verify_aud": False}
+    )
+    assert payload["video"]["room"] == body["room"]
+    assert payload["video"]["roomJoin"] is True
+    assert payload["sub"] == body["identity"]

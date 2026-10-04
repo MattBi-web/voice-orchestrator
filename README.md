@@ -322,18 +322,34 @@ npm run dev
 ```
 
 Open `http://localhost:5173`. The Vite dev server proxies `/api/*` to `localhost:8000`
-(`web/vite.config.ts`), so there's no CORS fiddling in dev. The left pane is the agent tree
-(click to edit, `+` to add a child under any node); the right pane is the edit/create form plus
-the "try it" box, wired to `POST /api/test/route`. `tests/test_webapi.py` (13 tests, `TestClient`
-against a temp SQLite file) covers the full CRUD surface, the auto-seed-once behavior, and both the
-happy and error paths (duplicate id, missing parent, delete-the-root, delete-with-children).
+(`web/vite.config.ts`), so there's no CORS fiddling in dev. The "Agent builder" tab is the agent
+tree (click to edit, `+` to add a child under any node) plus the edit/create form and the
+text-based "try it" box, wired to `POST /api/test/route`. `tests/test_webapi.py` (16 tests,
+`TestClient` against a temp SQLite file) covers the full CRUD surface, the auto-seed-once
+behavior, both the happy and error paths (duplicate id, missing parent, delete-the-root,
+delete-with-children), and the voice-token endpoints below.
 
-**Deliberately not here (yet):** a live-call test console (voice, not just text), a call-log/
-analytics dashboard (would need persisting `CallSession`/`usage_guard` history, which today is
-in-memory or a single JSON counter — not a queryable log), phone-number provisioning, and
-multi-tenant auth/billing. None of these are what differentiates this project (the routing thesis
-and the clean core do that); they're the genuinely-different-scale infrastructure gap between a
-portfolio demo and ElevenLabs Agents/Vapi that no amount of UI polish closes.
+**"Test live (voce)" tab — a real call, not a text simulation.** `web/src/components/VoiceTestConsole.tsx`
+talks to LiveKit directly with the browser's own microphone, through
+[`livekit-client`](https://www.npmjs.com/package/livekit-client) — it has no idea the router,
+tools, or orchestrator exist, the same separation `chat`/the CLI already has from the voice layer.
+`POST /api/voice/token` (`webapi/voice_token.py`) is the only backend piece involved: it signs a
+short-lived LiveKit room token locally (no network call, just `livekit-api`'s `AccessToken`) for a
+freshly-named room — exactly what the hosted Agents Playground's own backend does for you. Click
+"Connetti e parla", grant mic access, and whatever worker is running
+(`python -m voice_orchestrator.voice.worker dev`) auto-joins the new room and answers, because a
+LiveKit Agents worker auto-dispatches to any room by default — the same mechanism that already
+makes the Playground work, just with this project's own UI around it instead. If `LIVEKIT_URL`/
+`LIVEKIT_API_KEY`/`LIVEKIT_API_SECRET` aren't set on the backend, the tab greys itself out with that
+exact explanation (`GET /api/voice/status`) rather than letting a click fail with an opaque network
+error.
+
+**Deliberately not here (yet):** a call-log/analytics dashboard (would need persisting
+`CallSession`/`usage_guard` history, which today is in-memory or a single JSON counter — not a
+queryable log), phone-number provisioning, and multi-tenant auth/billing. None of these are what
+differentiates this project (the routing thesis and the clean core do that); they're the
+genuinely-different-scale infrastructure gap between a portfolio demo and ElevenLabs Agents/Vapi
+that no amount of UI polish closes.
 
 ## LLM providers: one abstraction, a free default
 

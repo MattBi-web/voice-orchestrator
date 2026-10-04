@@ -33,3 +33,10 @@ USAGE_FILE = Path(os.environ.get("VOICE_ORCH_USAGE_FILE", ROOT / "data" / "usage
 # the README's "Agent builder" section for the two-sources-of-truth trade-off
 # this implies.
 WEBAPI_DB_FILE = Path(os.environ.get("VOICE_ORCH_WEBAPI_DB_FILE", ROOT / "data" / "agents.db"))
+
+# Read directly here too (not just by livekit-agents' own CLI) so the
+# webapi's live voice test console (webapi/voice_token.py) can mint a room
+# token without needing the full voice/worker.py import chain.
+LIVEKIT_URL = os.environ.get("LIVEKIT_URL", "")
+LIVEKIT_API_KEY = os.environ.get("LIVEKIT_API_KEY", "")
+LIVEKIT_API_SECRET = os.environ.get("LIVEKIT_API_SECRET", "")
