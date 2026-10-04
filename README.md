@@ -230,7 +230,18 @@ That's the same shape this project already had: `handle_turn()` takes a string, 
 - **`voice/worker.py`** — the LiveKit worker entrypoint: wires `deepgram.STT(model="nova-3",
   language="multi")`, `elevenlabs.TTS(model="eleven_flash_v2_5")` (Flash v2.5, not the plugin's
   default `eleven_turbo_v2_5` — picked for the sub-300ms round-trip budget the architecture doc
-  set), and `silero.VAD.load()`, then starts an `AgentSession` around one `OrchestratorAgent`.
+  set), and `silero.VAD.load()`, then starts an `AgentSession` around one `OrchestratorAgent`. The
+  `__main__` block sets `WorkerOptions(num_idle_processes=0)` — confirmed directly against the
+  installed `livekit-agents`, outside dev mode this defaults to **2**, prewarming two full OS
+  subprocesses (interpreter + the Silero VAD model + the Deepgram/ElevenLabs SDKs) before any call
+  ever arrives, which is real memory spent at idle for zero benefit on a single-worker demo. **This
+  is harm reduction, not a fix for an underpowered host**: LiveKit's own deployment docs size a
+  voice-AI worker at 4 cores/8GB as a baseline, and `job_memory_warn_mb` defaults to 1000 (LiveKit's
+  own assumption that a *single* job can reasonably use 1GB) — both well above a 512MB instance.
+  If you deploy this to Render's $7/mo Starter plan (512MB) as the README's earlier Render section
+  describes, expect OOM kills (Render's own error: "Ran out of memory (used over 512MB)") under
+  real load regardless of this setting; the Standard plan (1 CPU/2GB, $25/mo) is the first tier
+  that matches what LiveKit itself assumes, not a generous margin above it.
 - **`voice/usage_guard.py`** — a self-imposed daily cap on call minutes, because none of LiveKit
   Cloud, Deepgram, or ElevenLabs offer a hard spending cap of their own (and if this ever runs on
   a host instead of a laptop, neither does Render — their support confirmed overage just gets

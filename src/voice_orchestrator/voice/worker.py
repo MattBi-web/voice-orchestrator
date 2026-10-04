@@ -100,4 +100,22 @@ async def entrypoint(ctx: JobContext) -> None:
 
 
 if __name__ == "__main__":
-    cli.run_app(WorkerOptions(entrypoint_fnc=entrypoint, request_fnc=request_fnc))
+    cli.run_app(
+        WorkerOptions(
+            entrypoint_fnc=entrypoint,
+            request_fnc=request_fnc,
+            # Outside dev mode, LiveKit Agents prewarms num_idle_processes
+            # full OS subprocesses (interpreter + onnxruntime's Silero VAD +
+            # the Deepgram/ElevenLabs SDKs) by default, sized off the host's
+            # CPU count — on a small host that alone can burn past a few
+            # hundred MB before a single call ever arrives. 0 means: fork a
+            # job process only when a job actually shows up, trading a bit
+            # of cold-start latency on the first call for not paying that
+            # memory cost at idle. This is harm reduction, not a guarantee —
+            # LiveKit's own deployment docs size a voice-AI worker at 4
+            # cores/8GB as a baseline, well above a $7/mo 512MB host; see
+            # the README's "Voice layer" section for the honest version of
+            # this trade-off.
+            num_idle_processes=0,
+        )
+    )
