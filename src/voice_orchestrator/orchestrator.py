@@ -7,9 +7,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from . import observability
 from .agents.registry import AgentSpec
 from .llm import LLMProvider
 from .memory import maybe_condense
+from .routing import gate
 from .routing.router import RoutingDecision, route
 from .state import CallSession, Turn
 from .tools import get_tool
@@ -48,17 +50,44 @@ def handle_turn(session: CallSession, root: AgentSpec, utterance: str, provider:
         target = root.find(decision.chosen_agent_id)
         assert target is not None
         session.record_handoff(from_agent=current.id, to_agent=target.id, reason=decision.reason)
+        session.record_event(
+            observability.COMPONENT_AGENT,
+            observability.EVENT_HANDOFF,
+            from_agent=current.id,
+            to_agent=target.id,
+            reason=decision.reason,
+        )
         session.agent_path.append(target.id)
         current = target
 
     tool_notes: list[str] = []
     tool_ids_used: list[str] = []
-    for tool_id in current.tools:
-        tool = get_tool(tool_id)
+    gate_context = session.gate_context()
+    for binding in current.tools:
+        # Same AST-safe gate as agent eligibility, just scoped to one tool —
+        # e.g. "channel == 'voice'" keeps a tool off a text/SMS turn. An empty
+        # condition (the common case) is always eligible, so this is a no-op
+        # for every tool that doesn't declare one.
+        if not gate.is_eligible(binding.condition, gate_context):
+            session.record_event(
+                observability.COMPONENT_TOOL,
+                observability.EVENT_TOOL_SKIPPED_CONDITION,
+                tool_id=binding.id,
+                agent_id=current.id,
+                condition=binding.condition,
+            )
+            continue
+        tool = get_tool(binding.id)
         if tool.should_trigger(current, utterance, session):
             result = tool.run(current, utterance, session)
             tool_notes.append(result.summary)
-            tool_ids_used.append(tool_id)
+            tool_ids_used.append(binding.id)
+            session.record_event(
+                observability.COMPONENT_TOOL,
+                observability.EVENT_TOOL_TRIGGERED,
+                tool_id=binding.id,
+                agent_id=current.id,
+            )
 
     reply = provider.respond(
         agent=current,

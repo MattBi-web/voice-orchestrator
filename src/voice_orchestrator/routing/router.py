@@ -12,6 +12,17 @@ Three possible outcomes per turn, in increasing order of cost:
 Staying with the current agent is always a valid outcome — this is what
 keeps the system from ping-ponging between agents when nothing in the
 utterance actually calls for a handoff.
+
+Known limitation, by design rather than oversight: routing only ever looks
+*downward* at the current agent's children, never back up toward the root
+or sideways to a sibling. Once a leaf agent (no children) has the call, the
+only way out is a tool it was explicitly given (transfer_to_human, say) —
+asking a leaf agent an unrelated question does not bounce you back to the
+router. That's fine for a strict IVR-style tree; it would need an explicit
+"return to root" transition (a tool, or a reserved trigger every agent
+checks first) to support a caller wandering topics freely. Not built here
+because the sample family doesn't need it to demonstrate the router itself
+— but worth knowing before treating this as production-ready call routing.
 """
 from __future__ import annotations
 
@@ -19,6 +30,7 @@ import time
 from dataclasses import dataclass
 from typing import Callable
 
+from .. import observability
 from ..agents.registry import AgentSpec
 from ..state import CallSession, RoutingEvent
 from . import gate
@@ -38,13 +50,6 @@ class RoutingDecision:
     reason: str = ""
 
 
-def _build_context(session: CallSession) -> dict:
-    context = dict(session.slots)
-    context["depth"] = session.depth
-    context.setdefault("authenticated", session.slots.get("authenticated", False))
-    return context
-
-
 def route(
     utterance: str,
     current_agent: AgentSpec,
@@ -52,7 +57,7 @@ def route(
     llm_fallback: LLMFallback | None = None,
 ) -> RoutingDecision:
     start = time.perf_counter()
-    context = _build_context(session)
+    context = session.gate_context()
 
     eligible = [c for c in current_agent.children if gate.is_eligible(c.eligibility, context)]
     eligible_ids = [a.id for a in eligible]
@@ -121,4 +126,12 @@ def _record(session: CallSession, utterance: str, decision: RoutingDecision, sta
             latency_ms=elapsed_ms,
             reason=decision.reason,
         )
+    )
+    session.record_event(
+        observability.COMPONENT_ROUTER,
+        observability.EVENT_ROUTING_DECISION,
+        resolved_by=decision.resolved_by,
+        chosen_agent=decision.chosen_agent_id,
+        eligible_agents=decision.eligible_agents,
+        latency_ms=elapsed_ms,
     )

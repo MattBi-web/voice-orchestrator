@@ -13,6 +13,7 @@ dependencies = [
   "rich>=13.7",
   "bm25s>=0.2",
   "anthropic>=0.40",
+  "mcp>=1.0,<2.0",  # mcp 2.x renamed FastMCP -> MCPServer with a breaking API change; pinned to what demo_mcp_server.py is actually written against
 ]
 
 [project.optional-dependencies]

@@ -11,6 +11,21 @@ from pathlib import Path
 
 
 @dataclass
+class ToolBinding:
+    """One tool an agent may call, plus an optional per-tool eligibility
+    condition — the adapted version of Rapida's per-tool source/mode/direction
+    condition rules. Evaluated with the same AST-safe gate (routing/gate.py)
+    used for agent eligibility, against CallSession.gate_context(), so a tool
+    condition can combine the channel with any other slot
+    ("channel == 'voice' and authenticated == true"), not just check one
+    field at a time. Empty condition = always available, same convention as
+    AgentSpec.eligibility."""
+
+    id: str
+    condition: str = ""
+
+
+@dataclass
 class AgentSpec:
     id: str
     name: str
@@ -23,8 +38,8 @@ class AgentSpec:
     # Level 2 (lightweight classifier): keywords/phrases that make this agent a
     # strong candidate for the current utterance. Matched case-insensitively.
     triggers: list[str] = field(default_factory=list)
-    # Tool names (resolved against tools/registry at runtime) this agent may call.
-    tools: list[str] = field(default_factory=list)
+    # Tools this agent may call, each with its own optional condition.
+    tools: list[ToolBinding] = field(default_factory=list)
     # Markdown knowledge files (relative to data/knowledge/) this agent can search
     # via the knowledge_lookup tool, if it has that tool.
     knowledge: list[str] = field(default_factory=list)
@@ -44,6 +59,17 @@ class AgentSpec:
         return None
 
 
+def _parse_tool_binding(entry) -> ToolBinding:
+    """A tool entry is either a bare id ("knowledge_lookup") or, when it
+    needs a condition, a one-key mapping ({id: knowledge_lookup, condition:
+    "channel == 'voice'"}). Both are valid YAML; the bare form is just the
+    dict form with condition defaulted to "", so existing configs keep working
+    unchanged."""
+    if isinstance(entry, str):
+        return ToolBinding(id=entry)
+    return ToolBinding(id=entry["id"], condition=entry.get("condition", ""))
+
+
 def _parse_node(node: dict) -> AgentSpec:
     children = [_parse_node(c) for c in node.get("children", [])]
     return AgentSpec(
@@ -53,7 +79,7 @@ def _parse_node(node: dict) -> AgentSpec:
         system_prompt=node.get("system_prompt", ""),
         eligibility=node.get("eligibility", ""),
         triggers=list(node.get("triggers", [])),
-        tools=list(node.get("tools", [])),
+        tools=[_parse_tool_binding(t) for t in node.get("tools", [])],
         knowledge=list(node.get("knowledge", [])),
         voice=node.get("voice", "default"),
         children=children,
@@ -80,7 +106,10 @@ def _node_to_dict(agent: AgentSpec) -> dict:
     if agent.triggers:
         node["triggers"] = agent.triggers
     if agent.tools:
-        node["tools"] = agent.tools
+        node["tools"] = [
+            binding.id if not binding.condition else {"id": binding.id, "condition": binding.condition}
+            for binding in agent.tools
+        ]
     if agent.knowledge:
         node["knowledge"] = agent.knowledge
     if agent.voice != "default":

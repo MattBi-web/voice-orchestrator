@@ -4,6 +4,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 AGENTS_FILE = Path(os.environ.get("VOICE_ORCH_AGENTS_FILE", ROOT / "config" / "agents.yaml"))
 KNOWLEDGE_DIR = Path(os.environ.get("VOICE_ORCH_KNOWLEDGE_DIR", ROOT / "data" / "knowledge"))
+# Which external MCP servers an agent's "mcp:<name>" tools connect to —
+# config, not code, same as agents.yaml. Missing file = no MCP tools registered.
+MCP_SERVERS_FILE = Path(os.environ.get("VOICE_ORCH_MCP_SERVERS_FILE", ROOT / "config" / "mcp_servers.yaml"))
 
 ANTHROPIC_MODEL = os.environ.get("VOICE_ORCH_ANTHROPIC_MODEL", "claude-sonnet-4-5")
 OPENAI_MODEL = os.environ.get("VOICE_ORCH_OPENAI_MODEL", "gpt-4.1-mini")

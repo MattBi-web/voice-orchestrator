@@ -12,6 +12,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
+from .observability import Event
+
 
 @dataclass
 class Turn:
@@ -48,6 +50,17 @@ class CallSession:
     agent_path: list[str] = field(default_factory=list)  # root -> ... -> current
     routing_log: list[RoutingEvent] = field(default_factory=list)
     handoff_log: list[HandoffEvent] = field(default_factory=list)
+    # Generic structured trace alongside routing_log/handoff_log — see
+    # observability.py's module docstring for why this is a separate list
+    # rather than a replacement.
+    event_log: list[Event] = field(default_factory=list)
+    # Which surface this turn is arriving on — "voice" | "chat" | "sms", etc.
+    # Lets an agent or a tool scope itself to a channel (see gate_context()),
+    # the adapted version of Rapida's source/mode condition rules — but
+    # evaluated by our own AST-safe gate instead of a bespoke string-switch,
+    # so a condition can combine channel with any other slot ("channel ==
+    # 'voice' and authenticated == true") instead of checking one field at a time.
+    channel: str = "voice"
 
     @property
     def current_agent_id(self) -> str | None:
@@ -56,6 +69,18 @@ class CallSession:
     @property
     def depth(self) -> int:
         return len(self.agent_path)
+
+    def gate_context(self) -> dict[str, Any]:
+        """The single context dict used by every eligibility check in the
+        system — the Level-1 agent gate (routing/router.py) AND per-tool
+        conditions (orchestrator.py). One source of truth, so a config author
+        writes "authenticated == true" or "channel == 'voice'" the same way
+        whether it's gating an agent or a single tool on that agent."""
+        context: dict[str, Any] = dict(self.slots)
+        context["depth"] = self.depth
+        context["channel"] = self.channel
+        context.setdefault("authenticated", self.slots.get("authenticated", False))
+        return context
 
     def add_turn(self, speaker: str, text: str, agent_id: str | None = None) -> None:
         turn = Turn(speaker=speaker, agent_id=agent_id, text=text)
@@ -70,6 +95,18 @@ class CallSession:
 
     def record_handoff(self, from_agent: str, to_agent: str, reason: str) -> None:
         self.handoff_log.append(HandoffEvent(from_agent=from_agent, to_agent=to_agent, reason=reason))
+
+    def record_event(self, component: str, event: str, **attributes: Any) -> None:
+        self.event_log.append(Event(component=component, event=event, attributes=attributes))
+
+    def event_counts(self) -> dict[str, int]:
+        """How many events were logged per (component, event) pair — the
+        quick summary printed at the end of `voice-orchestrator chat`."""
+        counts: dict[str, int] = {}
+        for evt in self.event_log:
+            key = f"{evt.component}.{evt.event}"
+            counts[key] = counts.get(key, 0) + 1
+        return counts
 
     def routing_stats(self) -> dict[str, int]:
         """How many routing decisions were resolved at each level — the number

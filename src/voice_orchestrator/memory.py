@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from . import observability
 from .state import CallSession, Turn
 
 ROLLING_SUMMARY_TRIGGER = 6  # once the transcript passes this many turns, condense it
@@ -69,3 +70,4 @@ def maybe_condense(session: CallSession, summarizer) -> None:
     session.rolling_summary = summarizer(session.rolling_summary, to_fold)
     # Keep only the verbatim tail; everything older is now represented by the summary.
     session.turns = session.turns[-KEEP_VERBATIM_TURNS:]
+    session.record_event(observability.COMPONENT_MEMORY, observability.EVENT_MEMORY_CONDENSED, turns_folded=len(to_fold))

@@ -32,7 +32,14 @@ root:
         - rimbors
         - costo mensile
         - scadenz
-      tools: ["check_account_status", "knowledge_lookup", "transfer_to_human"]
+      tools:
+        # Account lookup only on an authenticated voice call — not over a
+        # text/SMS channel, where we don't want balance figures landing in a
+        # message thread that could be read by someone else holding the phone.
+        - id: check_account_status
+          condition: "channel == 'voice'"
+        - knowledge_lookup
+        - transfer_to_human
       knowledge: ["billing_policy.md"]
       system_prompt: >
         You are Meridian Telecom's billing agent. Answer only from the
@@ -56,6 +63,19 @@ root:
         You are Meridian Telecom's sales agent. Explain plans and offers
         accurately from the knowledge base; don't promise discounts that
         aren't in it.
+
+    - id: roaming
+      name: "Roaming & International Agent"
+      description: "Handles data roaming rates and service outages abroad, backed by an external MCP tool."
+      triggers:
+        - roaming
+        - estero
+        - internazional
+      tools: ["mcp:demo", "transfer_to_human"]
+      system_prompt: >
+        You are Meridian Telecom's roaming agent. Use the roaming-rate or
+        outage-check tool to answer with real figures; never invent a rate
+        or an outage status.
 
     - id: tech_support
       name: "Technical Support"

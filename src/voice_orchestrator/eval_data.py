@@ -13,6 +13,7 @@ EVAL_SET: list[tuple[str, str, str, dict]] = [
     ("tech_support", "il router ha la luce rossa", "tech_internet", {}),
     ("tech_support", "il decoder non si accende più", "tech_tv", {}),
     ("tech_support", "non vedo più alcuni canali dopo l'upgrade", "tech_tv", {}),
+    ("router", "quanto costa il roaming dati in Francia?", "roaming", {}),
 
     # Level 1 (gate): billing isn't even eligible when not authenticated — the
     # router should stay put rather than transfer, regardless of the classifier.

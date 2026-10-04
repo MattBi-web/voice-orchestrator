@@ -8,7 +8,7 @@ from rich.table import Table
 from rich.tree import Tree
 
 from . import config
-from .agents.registry import AgentSpec, add_agent, load_family, remove_agent, save_family
+from .agents.registry import AgentSpec, ToolBinding, add_agent, load_family, remove_agent, save_family
 from .llm import get_provider
 from .orchestrator import handle_turn
 from .routing.router import route
@@ -45,11 +45,14 @@ def agents_add(
     parent: str = typer.Option(..., help="Id of the agent this one becomes a child of"),
     system_prompt: str = typer.Option("", help="System prompt for this agent"),
     triggers: str = typer.Option("", help="Comma-separated Level-2 keyword triggers"),
-    tools: str = typer.Option("", help="Comma-separated tool ids"),
+    tools: str = typer.Option("", help="Comma-separated tool ids (plain id, no per-tool condition)"),
     knowledge: str = typer.Option("", help="Comma-separated knowledge markdown filenames"),
     eligibility: str = typer.Option("", help="Level-1 gate expression, e.g. 'authenticated == true'"),
 ):
-    """Add a new agent (or sub-agent) to the family — no code changes needed."""
+    """Add a new agent (or sub-agent) to the family — no code changes needed.
+    A per-tool condition (e.g. restrict a tool to 'channel == voice') isn't
+    exposed as a CLI flag here — edit config/agents.yaml's tools: entry
+    directly for that, as a {id, condition} mapping."""
     root = load_family(config.AGENTS_FILE)
     new_agent = AgentSpec(
         id=id,
@@ -58,7 +61,7 @@ def agents_add(
         system_prompt=system_prompt,
         eligibility=eligibility,
         triggers=[t.strip() for t in triggers.split(",") if t.strip()],
-        tools=[t.strip() for t in tools.split(",") if t.strip()],
+        tools=[ToolBinding(id=t.strip()) for t in tools.split(",") if t.strip()],
         knowledge=[k.strip() for k in knowledge.split(",") if k.strip()],
     )
     try:
@@ -91,6 +94,7 @@ def route_cmd(
     utterance: str,
     start: str = typer.Option("router", help="Agent id to route from"),
     set_: list[str] = typer.Option([], "--set", help="Session slot override, key=value (repeatable)"),
+    channel: str = typer.Option("voice", help="Session channel, e.g. voice|chat|sms (affects tool conditions)"),
     provider_name: str = typer.Option(None, "--provider", help="fake|anthropic|openai|gemini"),
 ):
     """One-shot: test a single routing decision without a full conversation."""
@@ -100,7 +104,7 @@ def route_cmd(
         console.print(f"[red]No agent with id={start!r}[/red]")
         raise typer.Exit(1)
 
-    session = CallSession(call_id="route-test")
+    session = CallSession(call_id="route-test", channel=channel)
     for item in set_:
         key, _, value = item.partition("=")
         session.slots[key] = {"true": True, "false": False}.get(value.lower(), value)
@@ -121,13 +125,16 @@ def route_cmd(
 @app.command()
 def chat(
     authenticated: bool = typer.Option(True, help="Seed the session as authenticated (gates billing)"),
+    channel: str = typer.Option("voice", help="Session channel, e.g. voice|chat|sms (affects tool conditions)"),
     provider_name: str = typer.Option(None, "--provider", help="fake|anthropic|openai|gemini"),
 ):
     """Interactive text simulation of a call. Type 'exit' to end, '/auth off'
-    or '/auth on' to toggle the authenticated slot mid-call (demoes the gate)."""
+    or '/auth on' to toggle the authenticated slot mid-call (demoes the agent
+    gate), '/channel <name>' to switch channel mid-call (demoes per-tool
+    conditions — try '/channel sms' then a billing question)."""
     root = load_family(config.AGENTS_FILE)
     provider = get_provider(provider_name)
-    session = CallSession(call_id=str(uuid.uuid4())[:8])
+    session = CallSession(call_id=str(uuid.uuid4())[:8], channel=channel)
     session.slots["authenticated"] = authenticated
 
     console.print("[bold]Meridian Telecom[/bold] — digita 'exit' per terminare la chiamata.\n")
@@ -139,6 +146,10 @@ def chat(
             session.slots["authenticated"] = utterance.strip().lower().endswith("on")
             console.print(f"[dim](authenticated = {session.slots['authenticated']})[/dim]")
             continue
+        if utterance.strip().lower().startswith("/channel "):
+            session.channel = utterance.strip().split(" ", 1)[1].strip()
+            console.print(f"[dim](channel = {session.channel!r})[/dim]")
+            continue
 
         result = handle_turn(session, root, utterance, provider)
         tag = f"[dim]({result.routing.resolved_by}" + (
@@ -148,6 +159,7 @@ def chat(
 
     stats = session.routing_stats()
     console.print(f"\n[dim]Routing breakdown this call: {stats}[/dim]")
+    console.print(f"[dim]Events logged this call: {session.event_counts()}[/dim]")
 
 
 @app.command(name="eval")

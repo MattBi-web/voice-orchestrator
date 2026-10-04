@@ -44,6 +44,13 @@ order, each only reached if the previous one couldn't decide:
    (including plain greetings), which causes exactly the agent-ping-ponging the architecture
    research flagged as a real failure mode.
 
+**Known limitation, by design:** routing only ever looks downward at the current agent's children,
+never back up to the root or sideways to a sibling — a leaf agent (no children, e.g. `roaming`)
+can only be left via a tool it was explicitly given (`transfer_to_human`), not by asking it an
+unrelated question. Fine for a strict IVR-style tree; a caller freely wandering topics would need
+an explicit "return to root" transition this sample family doesn't build (see `routing/router.py`'s
+docstring for the detail).
+
 Every routing decision records which level resolved it (`RoutingEvent.resolved_by`), which is
 what turns "we optimized for latency" into a number you can check:
 
@@ -68,14 +75,15 @@ $ voice-orchestrator agents list
 router — Receptionist
 ├── billing — Billing Agent  (eligibility: authenticated == true)
 ├── sales — Sales & Upgrades Agent
+├── roaming — Roaming & International Agent
 └── tech_support — Technical Support
     ├── tech_internet — Internet Connectivity Support
     └── tech_tv — TV & Set-Top-Box Support
 
-$ voice-orchestrator agents add --id roaming --parent tech_support \
-    --name "Roaming Support" --description "Handles international roaming questions" \
-    --triggers roaming,estero,internazionale --tools knowledge_lookup
-Added 'roaming' under 'tech_support'.
+$ voice-orchestrator agents add --id vip_support --parent sales \
+    --name "VIP Escalations" --description "Handles VIP customer escalations" \
+    --triggers vip,escalation --tools transfer_to_human
+Added 'vip_support' under 'sales'.
 ```
 
 `agents/registry.py`'s `AgentSpec` is the typed shape behind the YAML (`id`, `name`,
@@ -134,6 +142,58 @@ Three tools ship as examples of the three kinds of thing an agent typically need
   need dense retrieval and reranking, swap this tool's internals for Company Brain's
   `retrieval.py` — same `Tool` interface, different engine underneath.
 
+## Four pieces adapted from a real production platform
+
+While building this, I read through [Rapida](https://github.com/rapidaai/voice-ai) — an
+open-source, ~175k-line Go voice-AI platform — to sanity-check this project's architecture against
+something running in production. The verdict: **the two-level router is not something Rapida (or,
+as far as I could find, anyone at that scale) does** — their agent graph calls the LLM, with
+native tool-calling, on every single turn to decide the next node. So the core thesis here stands.
+But Rapida's *infrastructure* is, unsurprisingly, far more mature than a portfolio demo — four
+pieces were worth adapting in, rewritten to fit this project's style rather than copied:
+
+**Tool conditions.** Rapida scopes a tool to a channel/mode via a bespoke string-switch matcher.
+Here, a tool's `condition` (in `agents.yaml`) is evaluated by the *same* AST-safe gate that already
+guards agent eligibility (`routing/gate.py`) — one mechanism, and more expressive (it combines
+conditions with `and`/`or` instead of checking one field at a time). `CallSession.channel` and
+`gate_context()` (`state.py`) are the plumbing underneath. Billing's `check_account_status` is
+gated `channel == 'voice'` — a balance figure shouldn't land in a text thread. Toggle it live in
+`chat` with `/channel sms`.
+
+**MCP tool support.** `tools/mcp_tool.py`'s `MCPTool` points an agent at any
+[MCP](https://modelcontextprotocol.io) server and auto-discovers every tool it exposes — matched
+against the utterance to a remote tool, you can run with zero setup. `tools/demo_mcp_server.py`
+bundles one (`get_roaming_rate`, `check_service_outage`, fake data) so the feature is exercisable
+without any external account; `config/mcp_servers.yaml` wires it to the new `roaming` agent. Kept
+honest about where it's a simplification: `should_trigger`/`run` stay synchronous like every other
+`Tool`, so each call reconnects rather than holding a session open, and the argument passed to the
+remote tool is a best-effort guess (the whole utterance into the tool's first parameter) rather
+than an LLM extracting it properly — Rapida solves both by making every tool call go through
+native function-calling. That's a real trade-off this project makes deliberately (see the tools
+section above), not an oversight.
+
+**Structured observability events.** Rapida's agent graph emits a typed event
+(`AgentTransitionMatched`/`Triggered`/`MissingEdge`) at every step. `observability.py`'s `Event` +
+`CallSession.event_log`/`event_counts()` is the same idea, generalized to cover routing decisions,
+handoffs, and tool calls — alongside, not instead of, the existing `routing_log` the eval depends
+on. `chat` prints a summary at the end of each call; wiring a real sink (OpenTelemetry, a metrics
+backend) later is a matter of iterating `event_log`, not changing how events get recorded.
+
+**Audio-layer interfaces.** Rapida keeps VAD, end-of-speech, and noise reduction as three separate
+pluggable providers (`silero_vad`/`ten_vad`, `silence_based_eos`/`livekit_eos`, a denoiser) rather
+than one blob of "audio processing" — a production system validating a split this project had only
+guessed at. `audio/` scaffolds the same three as ABCs (`VADProvider`, `EndOfSpeechProvider`,
+`DenoiserProvider`) with simple reference implementations (`NoOpVAD`, `SilenceBasedEOS`,
+`PassthroughDenoiser`) — not real audio processing (there's no audio yet), just the documented
+attachment point for when the real voice layer lands.
+
+One piece deliberately **stayed a note, not code**: Rapida's `CallContext` is a Postgres-backed
+pending→claimed state machine that bridges a telephony webhook (call setup) arriving on one path
+with the media WebSocket/SIP connection arriving on another — a real race condition in production
+telephony. A synchronous CLI demo has no such race to solve, so building it now would be solving a
+problem this project doesn't have yet. It's a confirmed, concrete item for when real Twilio/Telnyx
+webhooks get wired in, not before.
+
 ## LLM providers: one abstraction, a free default
 
 `llm.py`'s `LLMProvider` ABC has three methods — `classify`, `respond`, `summarize` — kept
@@ -158,7 +218,8 @@ voice-orchestrator chat
 ```
 
 `chat` simulates a call in the terminal. `/auth on` / `/auth off` toggle the `authenticated` slot
-mid-call, to see the gate actually block/unblock Billing live:
+mid-call, to see the gate actually block/unblock Billing live; `/channel sms` switches the
+channel, to see the `check_account_status` tool condition block it live:
 
 ```
 $ voice-orchestrator chat
@@ -173,21 +234,27 @@ Internet Connectivity Support: [Internet Connectivity Support] ... (gate_only, t
 Tu: exit
 
 Routing breakdown this call: {'gate_only': 1, 'pattern': 2, 'llm_fallback': 0}
+Events logged this call: {'router.routing_decision': 3, 'agent.handoff': 2, 'tool.tool_triggered': 5}
 ```
 
-`voice-orchestrator route "<utterance>" --start <agent_id> --set key=value` tests a single
-routing decision in isolation (handy when editing `agents.yaml` triggers). `pytest` runs the
-17-test suite (routing correctness over a hand-labeled eval set, the gate's security property,
-full-turn handoffs + tool triggering, and the agent add/remove roundtrip) — all against
-`FakeProvider`, so it needs no API keys either.
+`voice-orchestrator route "<utterance>" --start <agent_id> --set key=value --channel voice` tests
+a single routing decision in isolation (handy when editing `agents.yaml` triggers). `pytest` runs
+the full test suite (routing correctness over a hand-labeled eval set, the gate's security
+property, full-turn handoffs + tool triggering + tool conditions, structured events, a real
+stdio round-trip against the bundled MCP demo server, the audio-provider reference
+implementations, and the agent add/remove roundtrip) — all against `FakeProvider` and a local
+subprocess, so it needs no API keys or external network either.
 
 ## What's deliberately not here (yet)
 
 This is the **"core testuale prima"** phase, by design: the router, the agent family, the memory
-scoping, and the tool framework, all provider-agnostic and testable without a single API key or
-phone call. Real voice I/O — LiveKit for transport, Deepgram for STT, ElevenLabs for TTS — is the
-next layer, meant to sit on top of `handle_turn()` without changing anything in this core: the
-architecture doc has the reasoning for why those three specifically.
+scoping, the tool framework (including conditions and MCP), and structured events are all
+provider-agnostic and testable without a single API key or phone call. Still explicitly deferred:
+real audio — the `audio/` interfaces are scaffolded but nothing processes an actual audio frame
+yet — and real telephony, including Rapida's `CallContext` pending→claimed state machine (see
+above). LiveKit for transport, Deepgram for STT, ElevenLabs for TTS is the next layer, meant to
+sit on top of `handle_turn()` without changing anything in this core: the architecture doc has the
+reasoning for why those three specifically.
 
 ## License
 

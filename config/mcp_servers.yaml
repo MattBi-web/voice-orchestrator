@@ -1,0 +1,13 @@
+# External MCP servers an agent's "mcp:<name>" tool can call (tools/mcp_tool.py).
+# Each entry becomes one Tool with id "mcp:<name>"; every tool that server
+# exposes is auto-discovered — add a server here, no code change needed,
+# same "config, not code" principle as config/agents.yaml.
+#
+# This file ships with one demo entry so the feature works with zero
+# external setup: a bundled stdio MCP server (tools/demo_mcp_server.py) with
+# two toy tools over fake data (see that file). Delete this file, or this
+# entry, to disable MCP tools entirely.
+servers:
+  - name: demo
+    command: python3
+    args: ["-m", "voice_orchestrator.tools.demo_mcp_server"]
