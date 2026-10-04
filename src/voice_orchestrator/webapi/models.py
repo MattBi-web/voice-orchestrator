@@ -72,3 +72,26 @@ class AgentRow(Base):
     @knowledge.setter
     def knowledge(self, value: list[str]) -> None:
         self.knowledge_json = json.dumps(list(value))
+
+
+class McpServerRow(Base):
+    """The web-editable mirror of config/mcp_servers.yaml's `servers:` list —
+    same dual-source-of-truth pattern as AgentRow/agents.yaml above: seeded
+    once from the YAML (webapi/seed.py), then independent of it. `name` is
+    the primary key (and the suffix of the tool id "mcp:<name>"), so renaming
+    a server means delete + recreate, same as an agent's `id` can't change
+    after creation either."""
+
+    __tablename__ = "mcp_servers"
+
+    name: Mapped[str] = mapped_column(primary_key=True)
+    command: Mapped[str] = mapped_column(default="")
+    args_json: Mapped[str] = mapped_column(Text, default="[]")
+
+    @property
+    def args(self) -> list[str]:
+        return json.loads(self.args_json or "[]")
+
+    @args.setter
+    def args(self, value: list[str]) -> None:
+        self.args_json = json.dumps(list(value))

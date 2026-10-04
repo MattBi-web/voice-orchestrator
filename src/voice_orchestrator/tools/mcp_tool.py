@@ -151,28 +151,51 @@ class MCPTool(Tool):
         )
 
 
-def load_mcp_tools(path: Path = config.MCP_SERVERS_FILE) -> list[MCPTool]:
-    """Reads config/mcp_servers.yaml and returns one MCPTool per entry.
-    No file, empty file, or a parse error all mean "no MCP tools" — this is
-    an optional feature, and its absence shouldn't break CLI startup."""
+def resolve_command(command: str) -> str:
+    """"python"/"python3" means "the interpreter running this process" —
+    spawning a bare `python3` from PATH would miss whatever virtualenv
+    voice-orchestrator itself is installed into (bit us in exactly this way
+    once: worked where the package was installed globally, silently found
+    nothing where it wasn't). A real external server would give its own
+    absolute path or command here instead. Shared by the YAML-driven path
+    below and by the web API's DB-backed MCP servers (webapi/mcp_repository.py)
+    — a server typed into the browser as "python3" needs the exact same
+    substitution a YAML entry gets, or it'd silently fail only from the UI."""
+    if command in ("python", "python3"):
+        return sys.executable
+    return command
+
+
+def read_raw_server_entries(path: Path = config.MCP_SERVERS_FILE) -> list[dict]:
+    """The servers: list from config/mcp_servers.yaml, exactly as written —
+    no resolve_command() substitution yet. Used both by read_server_configs
+    below and by webapi/seed.py, which seeds the web API's mirror table with
+    the literal YAML command (e.g. "python3"), not a resolved absolute path
+    baked in once at seed time. No file, empty file, or a parse error all
+    mean "no servers", not an error."""
     if not path.exists():
         return []
     try:
         data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-        servers = data.get("servers", [])
-        tools = []
-        for s in servers:
-            command = s["command"]
-            # "python"/"python3" means "the interpreter running this
-            # process" — spawning a bare `python3` from PATH would miss
-            # whatever virtualenv voice-orchestrator itself is installed
-            # into (bit us in exactly this way once: worked where the
-            # package was installed globally, silently found nothing where
-            # it wasn't). A real external server would give its own
-            # absolute path or command here instead.
-            if command in ("python", "python3"):
-                command = sys.executable
-            tools.append(MCPTool(MCPServerConfig(name=s["name"], command=command, args=tuple(s.get("args", [])))))
-        return tools
+        return list(data.get("servers", []))
     except Exception:
         return []
+
+
+def read_server_configs(path: Path = config.MCP_SERVERS_FILE) -> list[MCPServerConfig]:
+    """Reads config/mcp_servers.yaml and returns one MCPServerConfig per
+    entry, with resolve_command() already applied. No file, empty file, or a
+    parse error all mean "no MCP tools" — this is an optional feature, and
+    its absence shouldn't break CLI startup."""
+    try:
+        return [
+            MCPServerConfig(name=s["name"], command=resolve_command(s["command"]), args=tuple(s.get("args", [])))
+            for s in read_raw_server_entries(path)
+        ]
+    except Exception:
+        return []
+
+
+def load_mcp_tools(path: Path = config.MCP_SERVERS_FILE) -> list[MCPTool]:
+    """One MCPTool per configured server — see read_server_configs()."""
+    return [MCPTool(cfg) for cfg in read_server_configs(path)]

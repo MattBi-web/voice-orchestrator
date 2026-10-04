@@ -1,4 +1,5 @@
-"""One-time import: config/agents.yaml -> the web API's SQLite database.
+"""One-time import: config/agents.yaml -> the web API's SQLite database, and
+likewise config/mcp_servers.yaml -> its own mirror table.
 
 Runs automatically on API startup (see app.py's lifespan) only when the
 database is still empty — so it seeds the Meridian Telecom demo family the
@@ -16,7 +17,8 @@ from sqlalchemy.orm import Session
 
 from .. import config
 from ..agents.registry import AgentSpec, load_family
-from .models import AgentRow
+from ..tools.mcp_tool import read_raw_server_entries
+from .models import AgentRow, McpServerRow
 
 
 def _insert_subtree(session: Session, node: AgentSpec, parent_id: str | None, position: int) -> None:
@@ -58,3 +60,20 @@ def reseed(session: Session, yaml_path: Path | None = None) -> None:
     root = load_family(yaml_path or config.AGENTS_FILE)
     _insert_subtree(session, root, parent_id=None, position=0)
     session.commit()
+
+
+def seed_mcp_if_empty(session: Session, yaml_path: Path | None = None) -> bool:
+    """Same idempotent "only if empty" import as seed_if_empty, for the MCP
+    servers table. Stores each entry's command exactly as YAML wrote it
+    (e.g. "python3"), not resolve_command()'s substitution — see
+    mcp_repository.row_to_config for where that substitution actually
+    happens, applied fresh every time a row becomes a real MCPServerConfig."""
+    already_has_rows = session.scalar(select(McpServerRow.name).limit(1)) is not None
+    if already_has_rows:
+        return False
+    for entry in read_raw_server_entries(yaml_path or config.MCP_SERVERS_FILE):
+        row = McpServerRow(name=entry["name"], command=entry["command"])
+        row.args = list(entry.get("args", []))
+        session.add(row)
+    session.commit()
+    return True

@@ -334,11 +334,12 @@ npm run dev
 
 Open `http://localhost:5173`. The Vite dev server proxies `/api/*` to `localhost:8000`
 (`web/vite.config.ts`), so there's no CORS fiddling in dev. The "Agent builder" tab is the agent
-tree (click to edit, `+` to add a child under any node) plus the edit/create form and the
-text-based "try it" box, wired to `POST /api/test/route`. `tests/test_webapi.py` (20 tests,
-`TestClient` against a temp SQLite file) covers the full CRUD surface, the auto-seed-once
-behavior, both the happy and error paths (duplicate id, missing parent, delete-the-root,
-delete-with-children), and the voice-token endpoints below.
+tree (click to edit, `+` to add a child under any node) plus the edit/create form, the
+text-based "try it" box (wired to `POST /api/test/route`), and the "Server MCP" panel below (see
+next). `tests/test_webapi.py` (28 tests, `TestClient` against a temp SQLite file) covers the full
+CRUD surface, the auto-seed-once behavior, both the happy and error paths (duplicate id, missing
+parent, delete-the-root, delete-with-children), the MCP-server endpoints below, and the
+voice-token endpoints below.
 
 **"Test live (voce)" tab — a real call, not a text simulation.** `web/src/components/VoiceTestConsole.tsx`
 talks to LiveKit directly with the browser's own microphone, through
@@ -369,6 +370,38 @@ charts via [Recharts](https://recharts.org)) shows total calls/minutes/avg durat
 calls-per-day, the routing-level breakdown (the same `gate_only`/`pattern`/`llm_fallback` split
 `eval` reports), and tool usage — with a toggle to exclude the agent builder's own test-route calls
 from the aggregates, since those aren't real conversations.
+
+**"Server MCP" panel — dynamic tools, no restart, no hand-edited YAML.** Before this, the only way
+to add an MCP tool was to hand-edit `config/mcp_servers.yaml` and restart every process — invisible
+to the web UI entirely, even though the agent builder could already attach a tool id to an agent.
+The panel at the bottom of the "Agent builder" tab closes that gap: list, create, edit, and delete
+MCP servers from the browser, with every change usable on the very next turn. It follows the exact
+same dual-source-of-truth pattern as the agent tree above it: `webapi/models.py`'s `McpServerRow`
+table is seeded once from `config/mcp_servers.yaml` (`webapi/seed.py`'s `seed_mcp_if_empty()`), then
+edited independently of it — the YAML file still works unchanged for the CLI/tests, nothing about
+that path was touched.
+
+The part worth being explicit about is how a server created through the browser becomes callable
+without restarting the backend process. `orchestrator.handle_turn()` calls `tools.get_tool()`
+against the module-level `tools.REGISTRY` dict directly, with no pluggable-registry parameter — and
+adding one would mean changing that already-tested core code to serve a newer, less-tested UI
+layer, the same ordering problem the agent tree's dual-source-of-truth note above already explains
+for a different file. So instead, `webapi/mcp_sync.py` mutates `tools.REGISTRY` *in place* at
+runtime: it's called once at startup (after seeding) and again after every create/update/delete,
+and each time it adds/replaces every `"mcp:<name>"` entry from the current DB rows and removes any
+`"mcp:<name>"` entry that's no longer in the table. `GET /api/tools` needs no code change at all to
+see this — it already just reads `sorted(REGISTRY)`. `tests/test_webapi.py`'s
+`test_mcp_server_create_makes_it_usable_without_a_restart` proves this isn't just a later `GET`
+picking up a background refresh: it creates a server and calls `/api/test/route` in the same
+request cycle, same process, zero restart in between.
+
+**Security note, stated plainly rather than glossed over:** an MCP server's `command`/`args` is
+whatever gets handed to the OS to spawn a real local subprocess (`tools/mcp_tool.py`). Letting a
+browser client create one is, honestly, a "run an arbitrary command on this machine" capability.
+That's acceptable only under the threat model this backend already documents for itself — local
+dev only, CORS locked to the Vite dev server's own origin, no authentication — and the panel says
+so in the UI itself, not just here. Don't expose this API past localhost without adding real auth
+first.
 
 **Deliberately not here (yet):** phone-number provisioning and multi-tenant auth/billing. Neither
 is what differentiates this project (the routing thesis and the clean core do that); they're the

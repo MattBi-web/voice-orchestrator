@@ -7,6 +7,7 @@ import { AgentForm } from './components/AgentForm'
 import { TestBox } from './components/TestBox'
 import { VoiceTestConsole } from './components/VoiceTestConsole'
 import { Dashboard } from './components/Dashboard'
+import { McpServersPanel } from './components/McpServersPanel'
 import './App.css'
 
 type Selection =
@@ -140,6 +141,8 @@ function App() {
             )}
 
             <TestBox root={root} />
+
+            <McpServersPanel onChanged={reload} />
           </main>
         </div>
       )}

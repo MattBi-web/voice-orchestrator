@@ -98,3 +98,10 @@ export interface CallStats {
   calls_by_source: Record<string, number>
   calls_by_day: CallDayCount[]
 }
+
+// Mirrors McpServerIn/McpServerOut in schemas.py.
+export interface McpServer {
+  name: string
+  command: string
+  args: string[]
+}

@@ -10,7 +10,7 @@ from voice_orchestrator.agents.registry import load_family
 from voice_orchestrator.orchestrator import handle_turn
 from voice_orchestrator.llm import FakeProvider
 from voice_orchestrator.state import CallSession
-from voice_orchestrator.tools.mcp_tool import MCPServerConfig, MCPTool
+from voice_orchestrator.tools.mcp_tool import MCPServerConfig, MCPTool, read_server_configs, resolve_command
 from voice_orchestrator import config
 
 
@@ -37,6 +37,25 @@ def test_mcp_tool_does_not_trigger_on_unrelated_utterance():
     tool = MCPTool(_demo_server())
     triggered = tool.should_trigger(agent=None, utterance="buongiorno", session=CallSession(call_id="t"))
     assert triggered is False
+
+
+def test_resolve_command_substitutes_bare_python_for_sys_executable():
+    assert resolve_command("python3") == sys.executable
+    assert resolve_command("python") == sys.executable
+    assert resolve_command("/usr/bin/node") == "/usr/bin/node"  # anything else passes through unchanged
+
+
+def test_read_server_configs_reads_the_bundled_yaml_with_substitution_applied():
+    """webapi/mcp_repository.row_to_config() and this both end up calling
+    resolve_command(), but at different times — this is the YAML path's own
+    version of that same contract, exercised against the real bundled
+    config/mcp_servers.yaml rather than a hand-built MCPServerConfig."""
+    configs = read_server_configs(config.MCP_SERVERS_FILE)
+    assert configs == [
+        MCPServerConfig(
+            name="demo", command=sys.executable, args=("-m", "voice_orchestrator.tools.demo_mcp_server")
+        )
+    ]
 
 
 def test_roaming_agent_wired_end_to_end():

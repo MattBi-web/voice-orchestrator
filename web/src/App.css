@@ -488,6 +488,48 @@
   border-color: var(--accent);
 }
 
+/* ---- MCP servers panel ---- */
+
+.mcp-panel {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 20px;
+}
+
+.mcp-panel__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.mcp-panel__header h2 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.mcp-panel__hint {
+  opacity: 0.75;
+  font-size: 13px;
+  margin-bottom: 16px;
+}
+
+.mcp-panel__table-wrap {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow-x: auto;
+  margin-bottom: 4px;
+}
+
+.mcp-panel__form {
+  margin-top: 16px;
+  padding: 16px;
+}
+
+.mcp-panel__form h3 {
+  margin-top: 0;
+}
+
 @media (max-width: 900px) {
   .dashboard__tiles {
     grid-template-columns: repeat(2, 1fr);

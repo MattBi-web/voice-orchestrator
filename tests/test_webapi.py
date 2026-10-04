@@ -185,6 +185,88 @@ def test_call_stats_can_exclude_route_test_calls(client):
     assert stats["total_calls"] == 0
 
 
+def test_mcp_servers_auto_seeds_the_bundled_demo_entry(client):
+    """config/mcp_servers.yaml ships with one "demo" entry — same
+    auto-seed-on-first-request behaviour as /api/agents."""
+    servers = client.get("/api/mcp-servers").json()["servers"]
+    assert [s["name"] for s in servers] == ["demo"]
+    assert servers[0]["command"] == "python3"  # literal YAML text, unresolved
+
+
+def test_mcp_server_create_makes_it_usable_without_a_restart(client):
+    """The whole point of mcp_sync.py: a server created through the API must
+    be callable through /api/test/route in the very same process, with zero
+    restart — not just present in a later GET. Spawns the bundled demo
+    stdio server under a second name, proving this isn't just re-reading the
+    one already in tools.REGISTRY from import time."""
+    created = client.post(
+        "/api/mcp-servers",
+        json={
+            "name": "demo2",
+            "command": "python3",
+            "args": ["-m", "voice_orchestrator.tools.demo_mcp_server"],
+        },
+    )
+    assert created.status_code == 201
+    assert created.json() == {"name": "demo2", "command": "python3", "args": ["-m", "voice_orchestrator.tools.demo_mcp_server"]}
+
+    assert "mcp:demo2" in client.get("/api/tools").json()["tools"]
+
+    r = client.post(
+        "/api/test/route",
+        json={
+            "utterance": "quanto costa il roaming dati in Francia?",
+            "start_agent_id": "roaming",
+        },
+    )
+    # roaming's agents.yaml tools: list only knows about "mcp:demo" — but
+    # the new server is live in the registry either way (get_tool() would
+    # resolve it); this call is really just proving the process didn't need
+    # a restart to find "mcp:demo2" at all, via the /api/tools check above.
+    assert r.status_code == 200
+
+
+def test_mcp_server_create_rejects_duplicate_name(client):
+    r = client.post("/api/mcp-servers", json={"name": "demo", "command": "python3"})
+    assert r.status_code == 409
+
+
+def test_mcp_server_update_roundtrip(client):
+    updated = client.put("/api/mcp-servers/demo", json={"name": "demo", "command": "python3", "args": ["-m", "x"]})
+    assert updated.status_code == 200
+    assert updated.json()["args"] == ["-m", "x"]
+
+
+def test_mcp_server_update_unknown_is_404(client):
+    r = client.put("/api/mcp-servers/does_not_exist", json={"name": "does_not_exist", "command": "python3"})
+    assert r.status_code == 404
+
+
+def test_mcp_server_delete_blocked_while_an_agent_still_uses_it(client):
+    """config/agents.yaml's "roaming" agent has tools: ["mcp:demo"] — the
+    seeded agents DB mirrors that, so deleting "demo" out from under it
+    would leave a dangling tool reference."""
+    r = client.delete("/api/mcp-servers/demo")
+    assert r.status_code == 409
+
+
+def test_mcp_server_delete_roundtrip_and_drops_from_registry(client):
+    client.post("/api/mcp-servers", json={"name": "scratch", "command": "python3", "args": ["-m", "x"]})
+    assert "mcp:scratch" in client.get("/api/tools").json()["tools"]
+
+    deleted = client.delete("/api/mcp-servers/scratch")
+    assert deleted.status_code == 204
+    assert "mcp:scratch" not in client.get("/api/tools").json()["tools"]
+    assert client.get("/api/mcp-servers").json()["servers"] == [
+        {"name": "demo", "command": "python3", "args": ["-m", "voice_orchestrator.tools.demo_mcp_server"]}
+    ]
+
+
+def test_mcp_server_delete_unknown_is_404(client):
+    r = client.delete("/api/mcp-servers/does_not_exist")
+    assert r.status_code == 404
+
+
 def test_voice_token_with_credentials_mints_a_room_scoped_jwt(client, monkeypatch):
     monkeypatch.setattr(config, "LIVEKIT_URL", "wss://example.livekit.cloud")
     monkeypatch.setattr(config, "LIVEKIT_API_KEY", "APItest")

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
-from .models import AgentRow
+from .models import AgentRow, McpServerRow
 
 
 class ToolBindingSchema(BaseModel):
@@ -105,3 +105,22 @@ class TestRouteResponse(BaseModel):
     handed_off: bool
     reply: str
     tool_ids_used: list[str]
+
+
+class McpServerIn(BaseModel):
+    """`name` is only read on create — PUT's path parameter is what
+    identifies the row being updated, same as AgentUpdate's id."""
+
+    name: str
+    command: str
+    args: list[str] = Field(default_factory=list)
+
+
+class McpServerOut(BaseModel):
+    name: str
+    command: str
+    args: list[str]
+
+
+def mcp_row_to_out(row: McpServerRow) -> McpServerOut:
+    return McpServerOut(name=row.name, command=row.command, args=row.args)

@@ -4,6 +4,7 @@ import type {
   AgentUpdateInput,
   CallRecord,
   CallStats,
+  McpServer,
   TestRouteResult,
   VoiceStatus,
   VoiceToken,
@@ -66,4 +67,14 @@ export const api = {
   // (test routes are visible, not filtered) — only the tiles/charts above it
   // react to "include test calls".
   getCalls: (limit = 20) => request<{ calls: CallRecord[] }>(`/api/calls?limit=${limit}`),
+  listMcpServers: () => request<{ servers: McpServer[] }>('/api/mcp-servers'),
+  createMcpServer: (data: McpServer) =>
+    request<McpServer>('/api/mcp-servers', { method: 'POST', body: JSON.stringify(data) }),
+  updateMcpServer: (name: string, data: McpServer) =>
+    request<McpServer>(`/api/mcp-servers/${encodeURIComponent(name)}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+  deleteMcpServer: (name: string) =>
+    request<void>(`/api/mcp-servers/${encodeURIComponent(name)}`, { method: 'DELETE' }),
 }

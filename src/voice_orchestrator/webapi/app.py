@@ -27,17 +27,21 @@ from ..llm import FakeProvider
 from ..orchestrator import handle_turn
 from ..state import CallSession
 from ..tools import REGISTRY
-from . import repository, seed, voice_token
+from . import mcp_repository, mcp_sync, repository, seed, voice_token
 from .db import get_session
+from .mcp_repository import McpServerInput
 from .models import AgentRow
 from .repository import AgentInput
 from .schemas import (
     AgentIn,
     AgentOut,
     AgentUpdate,
+    McpServerIn,
+    McpServerOut,
     TestRouteRequest,
     TestRouteResponse,
     build_agent_out_tree,
+    mcp_row_to_out,
     row_to_out,
 )
 
@@ -50,6 +54,11 @@ def _startup_seed() -> None:
     session = next(gen)
     try:
         seed.seed_if_empty(session)
+        seed.seed_mcp_if_empty(session)
+        # Always re-sync, even when nothing was just seeded: this is also
+        # what makes the registry correct across a plain server restart,
+        # when the DB already holds rows from a previous run.
+        mcp_sync.sync_registry_from_db(session)
     finally:
         try:
             next(gen)
@@ -81,6 +90,50 @@ def health() -> dict:
 @app.get("/api/tools")
 def list_tools() -> dict:
     return {"tools": sorted(REGISTRY)}
+
+
+@app.get("/api/mcp-servers")
+def list_mcp_servers(session: Session = Depends(get_session)) -> dict:
+    rows = mcp_repository.list_servers(session)
+    return {"servers": [mcp_row_to_out(r) for r in rows]}
+
+
+@app.post("/api/mcp-servers", response_model=McpServerOut, status_code=201)
+def create_mcp_server(body: McpServerIn, session: Session = Depends(get_session)) -> McpServerOut:
+    try:
+        row = mcp_repository.create_server(
+            session, McpServerInput(name=body.name, command=body.command, args=body.args)
+        )
+    except mcp_repository.McpServerNameTaken:
+        raise HTTPException(409, f"MCP server name={body.name!r} already exists")
+    # Sync before the response goes out, not after: a client that creates a
+    # server and immediately tests a route against it (see
+    # test_webapi.py's end-to-end sync test) must see it live right away,
+    # with no restart and no second request in between.
+    mcp_sync.sync_registry_from_db(session)
+    return mcp_row_to_out(row)
+
+
+@app.put("/api/mcp-servers/{name}", response_model=McpServerOut)
+def update_mcp_server(name: str, body: McpServerIn, session: Session = Depends(get_session)) -> McpServerOut:
+    try:
+        row = mcp_repository.update_server(session, name, McpServerInput(name=name, command=body.command, args=body.args))
+    except mcp_repository.McpServerNotFound:
+        raise HTTPException(404, f"No MCP server named {name!r}")
+    mcp_sync.sync_registry_from_db(session)
+    return mcp_row_to_out(row)
+
+
+@app.delete("/api/mcp-servers/{name}", status_code=204)
+def delete_mcp_server(name: str, session: Session = Depends(get_session)) -> None:
+    tool_id = f"mcp:{name}"
+    if tool_id in repository.list_tool_ids_in_use(session):
+        raise HTTPException(409, f"{tool_id!r} is still attached to one or more agents — detach it first")
+    try:
+        mcp_repository.delete_server(session, name)
+    except mcp_repository.McpServerNotFound:
+        raise HTTPException(404, f"No MCP server named {name!r}")
+    mcp_sync.sync_registry_from_db(session)
 
 
 @app.get("/api/voice/status")
