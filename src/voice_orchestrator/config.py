@@ -40,3 +40,11 @@ WEBAPI_DB_FILE = Path(os.environ.get("VOICE_ORCH_WEBAPI_DB_FILE", ROOT / "data" 
 LIVEKIT_URL = os.environ.get("LIVEKIT_URL", "")
 LIVEKIT_API_KEY = os.environ.get("LIVEKIT_API_KEY", "")
 LIVEKIT_API_SECRET = os.environ.get("LIVEKIT_API_SECRET", "")
+
+# A durable, append-only log of finished calls (call_log.py) — one JSON line
+# per call, written by `chat`, the voice worker, and the webapi's test-route
+# endpoint, read back by the agent-builder's analytics dashboard
+# (webapi/app.py's GET /api/calls*). Plain JSONL, not SQLite, so the text
+# core and the voice worker keep needing zero extra dependencies to write to
+# it — see call_log.py's module docstring.
+CALL_LOG_FILE = Path(os.environ.get("VOICE_ORCH_CALL_LOG_FILE", ROOT / "data" / "call_log.jsonl"))

@@ -15,8 +15,12 @@ from voice_orchestrator.webapi.app import app
 
 
 @pytest.fixture
-def client(tmp_path):
+def client(tmp_path, monkeypatch):
     db.configure(tmp_path / "test_agents.db")
+    # Every test gets its own throwaway call log too, for the same reason:
+    # nothing here should touch a developer's real data/call_log.jsonl, and
+    # tests must not see each other's logged calls.
+    monkeypatch.setattr(config, "CALL_LOG_FILE", tmp_path / "test_call_log.jsonl")
     with TestClient(app) as c:
         yield c
 
@@ -140,6 +144,45 @@ def test_voice_status_reports_not_configured_by_default(client):
 def test_voice_token_without_credentials_is_400(client):
     r = client.post("/api/voice/token")
     assert r.status_code == 400
+
+
+def test_test_route_logs_a_call_tagged_route_test(client):
+    client.post("/api/test/route", json={"utterance": "il wifi non si connette"})
+
+    calls = client.get("/api/calls").json()["calls"]
+    assert len(calls) == 1
+    assert calls[0]["source"] == "route_test"
+    assert calls[0]["final_agent_id"] == "tech_support"
+
+
+def test_calls_endpoint_filters_by_source_and_orders_newest_first(client):
+    client.post("/api/test/route", json={"utterance": "il wifi non si connette"})
+    client.post("/api/test/route", json={"utterance": "quanto costa il roaming in Francia?"})
+
+    all_calls = client.get("/api/calls").json()["calls"]
+    assert len(all_calls) == 2
+    assert all_calls[0]["final_agent_id"] == "roaming"  # newest first
+
+    filtered = client.get("/api/calls", params={"source": "chat"}).json()["calls"]
+    assert filtered == []
+
+
+def test_call_stats_aggregates_routing_and_tool_counts(client):
+    client.post("/api/test/route", json={"utterance": "quanto costa il roaming in Francia?"})
+    client.post("/api/test/route", json={"utterance": "voglio parlare con un operatore", "start_agent_id": "tech_internet"})
+
+    stats = client.get("/api/calls/stats").json()
+    assert stats["total_calls"] == 2
+    assert stats["resolved_by_totals"]["pattern"] + stats["resolved_by_totals"]["gate_only"] >= 1
+    assert "mcp:demo" in stats["tool_totals"]
+    assert stats["calls_by_source"] == {"route_test": 2}
+    assert len(stats["calls_by_day"]) == 14  # default window, zero-filled
+
+
+def test_call_stats_can_exclude_route_test_calls(client):
+    client.post("/api/test/route", json={"utterance": "ciao"})
+    stats = client.get("/api/calls/stats", params={"include_test": "false"}).json()
+    assert stats["total_calls"] == 0
 
 
 def test_voice_token_with_credentials_mints_a_room_scoped_jwt(client, monkeypatch):

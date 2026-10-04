@@ -23,24 +23,29 @@ daily call-minutes cap *before* a call is even accepted, which is the only
 hook point that avoids spending anything at all on a call that's over
 budget (rejecting a job never spins up a room or touches Deepgram/
 ElevenLabs). `entrypoint`'s shutdown callback is the other half — it's what
-records how long the call actually ran, once it ends.
+records how long the call actually ran, once it ends, and also files the
+call in `call_log.jsonl` (`..call_log`) for the agent-builder's analytics
+dashboard — the same record `chat` and the webapi's test-route endpoint
+write, just from this surface.
 """
 from __future__ import annotations
 
 import time
+from datetime import datetime, timezone
 
 from livekit.agents import Agent, AgentSession, JobContext, JobRequest, WorkerOptions, cli
 from livekit.plugins import deepgram, elevenlabs, silero
 
+from .. import call_log
 from .agent import OrchestratorAgent
-from .bridge import new_voice_bridge
+from .bridge import VoiceBridge, new_voice_bridge
 from .usage_guard import UsageGuard
 
 _guard = UsageGuard()
 
 
-def _build_agent(ctx: JobContext) -> Agent:
-    return OrchestratorAgent(new_voice_bridge(call_id=ctx.job.id))
+def _build_bridge(ctx: JobContext) -> VoiceBridge:
+    return new_voice_bridge(call_id=ctx.job.id)
 
 
 async def request_fnc(req: JobRequest) -> None:
@@ -58,9 +63,15 @@ async def request_fnc(req: JobRequest) -> None:
 async def entrypoint(ctx: JobContext) -> None:
     await ctx.connect()
     started_at = time.monotonic()
+    started_wall = datetime.now(timezone.utc)
+    bridge = _build_bridge(ctx)
 
     async def _record_usage() -> None:
         _guard.record_call(time.monotonic() - started_at)
+        # Same shutdown hook also files this call in call_log.jsonl for the
+        # agent-builder's analytics dashboard — one real call, recorded once,
+        # whether it ran its full course or the caller just hung up.
+        call_log.append(call_log.from_session(bridge.session, source="voice", started_at=started_wall))
 
     ctx.add_shutdown_callback(_record_usage)
 
@@ -85,7 +96,7 @@ async def entrypoint(ctx: JobContext) -> None:
         # AgentSession to ever actually call — see agent.py's docstring for
         # why that's deliberate rather than an oversight.
     )
-    await session.start(agent=_build_agent(ctx), room=ctx.room)
+    await session.start(agent=OrchestratorAgent(bridge), room=ctx.room)
 
 
 if __name__ == "__main__":

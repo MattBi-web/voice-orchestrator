@@ -360,6 +360,143 @@
   opacity: 0.55;
 }
 
+/* ---- Dashboard ---- */
+
+.dashboard__toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.dashboard__toolbar h2 {
+  margin: 0;
+}
+
+.dashboard__toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.dashboard__toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  opacity: 0.8;
+}
+
+.dashboard__empty {
+  opacity: 0.6;
+  padding: 16px 0;
+  text-align: center;
+}
+
+.dashboard__tiles {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.stat-tile {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px 16px;
+}
+
+.stat-tile__value {
+  font-size: 28px;
+  font-weight: 600;
+  color: var(--text-h);
+}
+
+.stat-tile__label {
+  font-size: 12px;
+  opacity: 0.65;
+  margin-top: 2px;
+}
+
+.dashboard__charts {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.dashboard__chart-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px 4px;
+}
+
+.dashboard__chart-card h3 {
+  font-size: 13px;
+  margin-bottom: 4px;
+  opacity: 0.8;
+}
+
+.dashboard__table-title {
+  font-size: 15px;
+  margin-bottom: 10px;
+}
+
+.dashboard__table-wrap {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow-x: auto;
+}
+
+.dashboard__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.dashboard__table th,
+.dashboard__table td {
+  text-align: left;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.dashboard__table th {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  opacity: 0.6;
+}
+
+.dashboard__table tr:last-child td {
+  border-bottom: none;
+}
+
+.dashboard__badge {
+  font-size: 11px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--bg-muted);
+  border: 1px solid var(--border);
+}
+
+.dashboard__badge--voice {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+@media (max-width: 900px) {
+  .dashboard__tiles {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .dashboard__charts {
+    grid-template-columns: 1fr;
+  }
+}
+
 @media (max-width: 800px) {
   .app__layout {
     grid-template-columns: 1fr;

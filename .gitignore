@@ -9,6 +9,10 @@ __pycache__/
 # family, not source to commit (config/agents.yaml stays the one checked-in
 # starting point; see webapi/db.py's docstring).
 data/agents.db
+# Append-only call log (call_log.py) — a developer's own local call
+# history, not something to ship as repo content.
+data/call_log.jsonl
 # Node / Vite frontend (web/)
 web/node_modules/
 web/dist/
+.env.save

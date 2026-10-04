@@ -6,6 +6,7 @@ import { Tree } from './components/Tree'
 import { AgentForm } from './components/AgentForm'
 import { TestBox } from './components/TestBox'
 import { VoiceTestConsole } from './components/VoiceTestConsole'
+import { Dashboard } from './components/Dashboard'
 import './App.css'
 
 type Selection =
@@ -13,7 +14,7 @@ type Selection =
   | { kind: 'edit'; agentId: string }
   | { kind: 'create'; parentId: string }
 
-type View = 'builder' | 'voice'
+type View = 'builder' | 'voice' | 'dashboard'
 
 function App() {
   const [view, setView] = useState<View>('builder')
@@ -78,6 +79,13 @@ function App() {
           >
             Test live (voce)
           </button>
+          <button
+            type="button"
+            className={view === 'dashboard' ? 'app__tab app__tab--active' : 'app__tab'}
+            onClick={() => setView('dashboard')}
+          >
+            Dashboard
+          </button>
         </nav>
       </header>
 
@@ -85,6 +93,8 @@ function App() {
 
       {view === 'voice' ? (
         <VoiceTestConsole />
+      ) : view === 'dashboard' ? (
+        <Dashboard />
       ) : loading ? (
         <p>Loading…</p>
       ) : (

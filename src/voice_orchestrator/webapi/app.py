@@ -13,13 +13,16 @@ the public internet without adding real authentication first.
 """
 from __future__ import annotations
 
+import uuid
 from contextlib import asynccontextmanager
+from datetime import datetime, timedelta, timezone
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from .. import call_log
 from ..llm import FakeProvider
 from ..orchestrator import handle_turn
 from ..state import CallSession
@@ -192,10 +195,15 @@ def test_route(body: TestRouteRequest, session: Session = Depends(get_session)) 
     if start is None:
         raise HTTPException(404, f"No agent with id={body.start_agent_id!r}")
 
-    call_session = CallSession(call_id="webapi-test", channel=body.channel, slots=dict(body.slots))
+    call_session = CallSession(call_id=f"webapi-test-{uuid.uuid4().hex[:8]}", channel=body.channel, slots=dict(body.slots))
     call_session.agent_path = [a.id for a in _path_to(root, start.id)]
 
+    started_at = datetime.now(timezone.utc)
     result = handle_turn(call_session, root, body.utterance, FakeProvider())
+    # Tagged "route_test" (not "chat"/"voice") so the dashboard can tell a
+    # single-turn routing check apart from an actual conversation — same
+    # record shape, just a different source label.
+    call_log.append(call_log.from_session(call_session, source="route_test", started_at=started_at))
     return TestRouteResponse(
         agent_id=result.agent.id,
         agent_name=result.agent.name,
@@ -205,6 +213,67 @@ def test_route(body: TestRouteRequest, session: Session = Depends(get_session)) 
         reply=result.reply,
         tool_ids_used=result.tool_ids_used,
     )
+
+
+@app.get("/api/calls")
+def list_calls(limit: int = 200, source: str | None = None) -> dict:
+    """Newest first, straight off `call_log.jsonl` — no SQLite involved (see
+    call_log.py's docstring for why). `source` filters to one of
+    "chat"/"voice"/"route_test"; omit it for everything."""
+    records = call_log.read_all()
+    if source:
+        records = [r for r in records if r.source == source]
+    records = list(reversed(records))[: max(limit, 0)]
+    return {"calls": [r.as_dict() for r in records]}
+
+
+@app.get("/api/calls/stats")
+def call_stats(days: int = 14, include_test: bool = True) -> dict:
+    """Aggregates the whole call log into what the dashboard's stat tiles
+    and charts need — one pass over the (small, portfolio-scale) list, no
+    separate rollup table to keep in sync. `include_test=false` drops
+    `source=="route_test"` entries (the agent builder's own "try it" box)
+    from every number here, for a view of real calls only."""
+    records = call_log.read_all()
+    if not include_test:
+        records = [r for r in records if r.source != "route_test"]
+
+    total_calls = len(records)
+    total_seconds = sum(r.duration_seconds for r in records)
+    avg_duration = (total_seconds / total_calls) if total_calls else 0.0
+    calls_with_handoff = sum(1 for r in records if r.handoffs > 0)
+    handoff_rate = (calls_with_handoff / total_calls) if total_calls else 0.0
+
+    resolved_by_totals: dict[str, int] = {"gate_only": 0, "pattern": 0, "llm_fallback": 0}
+    tool_totals: dict[str, int] = {}
+    calls_by_source: dict[str, int] = {}
+    for r in records:
+        for level, count in r.resolved_by_counts.items():
+            resolved_by_totals[level] = resolved_by_totals.get(level, 0) + count
+        for tool_id, count in r.tool_counts.items():
+            tool_totals[tool_id] = tool_totals.get(tool_id, 0) + count
+        calls_by_source[r.source] = calls_by_source.get(r.source, 0) + 1
+
+    # Zero-filled for the last `days` days so the chart doesn't just stop at
+    # the last day with a call and look broken.
+    today = datetime.now(timezone.utc).date()
+    buckets = {(today - timedelta(days=i)).isoformat(): 0 for i in range(days - 1, -1, -1)}
+    for r in records:
+        day = datetime.fromisoformat(r.started_at).date().isoformat()
+        if day in buckets:
+            buckets[day] += 1
+    calls_by_day = [{"date": d, "count": c} for d, c in buckets.items()]
+
+    return {
+        "total_calls": total_calls,
+        "total_minutes": round(total_seconds / 60.0, 2),
+        "avg_duration_seconds": round(avg_duration, 1),
+        "handoff_rate": round(handoff_rate, 3),
+        "resolved_by_totals": resolved_by_totals,
+        "tool_totals": tool_totals,
+        "calls_by_source": calls_by_source,
+        "calls_by_day": calls_by_day,
+    }
 
 
 def _path_to(root, target_id: str) -> list:

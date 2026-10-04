@@ -1,5 +1,6 @@
 """`voice-orchestrator chat|agents|route|eval` — see README for a walkthrough."""
 import uuid
+from datetime import datetime, timezone
 
 import typer
 import yaml
@@ -7,7 +8,7 @@ from rich.console import Console
 from rich.table import Table
 from rich.tree import Tree
 
-from . import config
+from . import call_log, config
 from .agents.registry import AgentSpec, ToolBinding, add_agent, load_family, remove_agent, save_family
 from .llm import get_provider
 from .orchestrator import handle_turn
@@ -136,6 +137,7 @@ def chat(
     provider = get_provider(provider_name)
     session = CallSession(call_id=str(uuid.uuid4())[:8], channel=channel)
     session.slots["authenticated"] = authenticated
+    started_at = datetime.now(timezone.utc)
 
     console.print("[bold]Meridian Telecom[/bold] — digita 'exit' per terminare la chiamata.\n")
     while True:
@@ -160,6 +162,8 @@ def chat(
     stats = session.routing_stats()
     console.print(f"\n[dim]Routing breakdown this call: {stats}[/dim]")
     console.print(f"[dim]Events logged this call: {session.event_counts()}[/dim]")
+    if session.full_log:  # don't log a call where "exit" was the very first thing typed
+        call_log.append(call_log.from_session(session, source="chat", started_at=started_at))
 
 
 @app.command(name="eval")

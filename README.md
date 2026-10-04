@@ -324,7 +324,7 @@ npm run dev
 Open `http://localhost:5173`. The Vite dev server proxies `/api/*` to `localhost:8000`
 (`web/vite.config.ts`), so there's no CORS fiddling in dev. The "Agent builder" tab is the agent
 tree (click to edit, `+` to add a child under any node) plus the edit/create form and the
-text-based "try it" box, wired to `POST /api/test/route`. `tests/test_webapi.py` (16 tests,
+text-based "try it" box, wired to `POST /api/test/route`. `tests/test_webapi.py` (20 tests,
 `TestClient` against a temp SQLite file) covers the full CRUD surface, the auto-seed-once
 behavior, both the happy and error paths (duplicate id, missing parent, delete-the-root,
 delete-with-children), and the voice-token endpoints below.
@@ -344,10 +344,23 @@ makes the Playground work, just with this project's own UI around it instead. If
 exact explanation (`GET /api/voice/status`) rather than letting a click fail with an opaque network
 error.
 
-**Deliberately not here (yet):** a call-log/analytics dashboard (would need persisting
-`CallSession`/`usage_guard` history, which today is in-memory or a single JSON counter — not a
-queryable log), phone-number provisioning, and multi-tenant auth/billing. None of these are what
-differentiates this project (the routing thesis and the clean core do that); they're the
+**"Dashboard" tab — real calls, not mock numbers.** Every call that finishes — a `chat` session, a
+real voice call, or one run of the "try it" box — gets one line appended to `data/call_log.jsonl`
+by `call_log.py` (`call_log.from_session()` reads straight off the `CallSession` that already
+existed: `routing_stats()`, `event_log`, `handoff_log`; nothing new to track by hand).
+Deliberately a plain JSONL file, not a SQLite table: `call_log.py` lives in the core, so `cli.py`
+and `voice/worker.py` can both log a call with zero extra dependencies — the same "nothing else
+imports webapi's deps" promise as everywhere else in this README, just pointed the other way.
+`GET /api/calls/stats` and `GET /api/calls` (`webapi/app.py`) read and aggregate that file on
+request — no separate rollup to keep in sync, since the log is small by construction (a portfolio
+demo's worth of calls, not production volume). The dashboard itself (`web/src/components/Dashboard.tsx`,
+charts via [Recharts](https://recharts.org)) shows total calls/minutes/avg duration/handoff rate,
+calls-per-day, the routing-level breakdown (the same `gate_only`/`pattern`/`llm_fallback` split
+`eval` reports), and tool usage — with a toggle to exclude the agent builder's own test-route calls
+from the aggregates, since those aren't real conversations.
+
+**Deliberately not here (yet):** phone-number provisioning and multi-tenant auth/billing. Neither
+is what differentiates this project (the routing thesis and the clean core do that); they're the
 genuinely-different-scale infrastructure gap between a portfolio demo and ElevenLabs Agents/Vapi
 that no amount of UI polish closes.
 

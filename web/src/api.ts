@@ -1,4 +1,13 @@
-import type { Agent, AgentInput, AgentUpdateInput, TestRouteResult, VoiceStatus, VoiceToken } from './types'
+import type {
+  Agent,
+  AgentInput,
+  AgentUpdateInput,
+  CallRecord,
+  CallStats,
+  TestRouteResult,
+  VoiceStatus,
+  VoiceToken,
+} from './types'
 
 // Every function here throws ApiError on a non-2xx response, with the
 // backend's own `detail` message (FastAPI's HTTPException shape) attached
@@ -51,4 +60,10 @@ export const api = {
     }),
   getVoiceStatus: () => request<VoiceStatus>('/api/voice/status'),
   getVoiceToken: () => request<VoiceToken>('/api/voice/token', { method: 'POST' }),
+  getCallStats: (includeTest: boolean, days = 14) =>
+    request<CallStats>(`/api/calls/stats?days=${days}&include_test=${includeTest}`),
+  // The recent-calls table always shows everything, source column included
+  // (test routes are visible, not filtered) — only the tiles/charts above it
+  // react to "include test calls".
+  getCalls: (limit = 20) => request<{ calls: CallRecord[] }>(`/api/calls?limit=${limit}`),
 }
