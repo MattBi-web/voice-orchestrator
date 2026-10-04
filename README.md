@@ -231,6 +231,18 @@ That's the same shape this project already had: `handle_turn()` takes a string, 
   language="multi")`, `elevenlabs.TTS(model="eleven_flash_v2_5")` (Flash v2.5, not the plugin's
   default `eleven_turbo_v2_5` — picked for the sub-300ms round-trip budget the architecture doc
   set), and `silero.VAD.load()`, then starts an `AgentSession` around one `OrchestratorAgent`.
+- **`voice/usage_guard.py`** — a self-imposed daily cap on call minutes, because none of LiveKit
+  Cloud, Deepgram, or ElevenLabs offer a hard spending cap of their own (and if this ever runs on
+  a host instead of a laptop, neither does Render — their support confirmed overage just gets
+  billed with an email warning, no cap). `UsageGuard` tracks total call minutes per UTC calendar
+  day in a small JSON file (`data/usage_log.json` by default); `worker.py`'s `request_fnc` rejects
+  a *new* call outright once the day's budget (`VOICE_ORCH_MAX_CALL_MINUTES_PER_DAY`, default 60)
+  is used up — rejecting costs nothing (no room, no STT/TTS connection opened), unlike accepting
+  and immediately hanging up. A call already in progress when the cap is hit is left to finish.
+  Minutes, not a per-provider euro estimate, is the metric on purpose: a euro figure needs
+  Deepgram/ElevenLabs/Anthropic's current per-unit prices hardcoded somewhere, which drift and go
+  stale silently; minutes needs no pricing assumptions at all. `tests/test_usage_guard.py` covers
+  the day-rollover and corrupt-file-is-zero-not-a-crash cases with no LiveKit import.
 
 `tests/test_voice_bridge.py` covers the STT-transcript→reply path (including the "blank/noise
 transcript → no reply" case) against `FakeProvider`, with no LiveKit connection, no microphone,

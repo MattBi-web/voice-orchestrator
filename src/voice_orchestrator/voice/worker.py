@@ -17,22 +17,52 @@ start one AgentSession around it. STT/VAD/TTS provider choice lives here
 and only here — swapping Deepgram for another STT, say, is a one-line
 change in this file; bridge.py and agent.py don't know or care which
 providers are plugged in above them.
+
+`request_fnc` is the other piece worth noticing: it runs `usage_guard.py`'s
+daily call-minutes cap *before* a call is even accepted, which is the only
+hook point that avoids spending anything at all on a call that's over
+budget (rejecting a job never spins up a room or touches Deepgram/
+ElevenLabs). `entrypoint`'s shutdown callback is the other half — it's what
+records how long the call actually ran, once it ends.
 """
 from __future__ import annotations
 
-from livekit.agents import Agent, AgentSession, JobContext, WorkerOptions, cli
+import time
+
+from livekit.agents import Agent, AgentSession, JobContext, JobRequest, WorkerOptions, cli
 from livekit.plugins import deepgram, elevenlabs, silero
 
 from .agent import OrchestratorAgent
 from .bridge import new_voice_bridge
+from .usage_guard import UsageGuard
+
+_guard = UsageGuard()
 
 
 def _build_agent(ctx: JobContext) -> Agent:
     return OrchestratorAgent(new_voice_bridge(call_id=ctx.job.id))
 
 
+async def request_fnc(req: JobRequest) -> None:
+    """LiveKit's own default request_fnc is just `await req.accept()` — this
+    adds exactly one check in front of that: has today's call-minutes
+    budget already been used? If so, reject outright rather than accept
+    and immediately hang up — a rejected job never creates a room or opens
+    an STT/TTS connection, so it's the only response that costs nothing."""
+    if not _guard.can_start_call():
+        await req.reject()
+        return
+    await req.accept()
+
+
 async def entrypoint(ctx: JobContext) -> None:
     await ctx.connect()
+    started_at = time.monotonic()
+
+    async def _record_usage() -> None:
+        _guard.record_call(time.monotonic() - started_at)
+
+    ctx.add_shutdown_callback(_record_usage)
 
     session = AgentSession(
         vad=silero.VAD.load(),
@@ -59,4 +89,4 @@ async def entrypoint(ctx: JobContext) -> None:
 
 
 if __name__ == "__main__":
-    cli.run_app(WorkerOptions(entrypoint_fnc=entrypoint))
+    cli.run_app(WorkerOptions(entrypoint_fnc=entrypoint, request_fnc=request_fnc))

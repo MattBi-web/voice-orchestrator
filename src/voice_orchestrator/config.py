@@ -14,3 +14,12 @@ GEMINI_MODEL = os.environ.get("VOICE_ORCH_GEMINI_MODEL", "gemini-3-flash")
 
 # Which provider to use: "anthropic" | "openai" | "gemini" | "fake" (default, zero setup).
 PROVIDER = os.environ.get("VOICE_ORCH_PROVIDER", "fake")
+
+# Self-imposed daily cap on real-time voice minutes (voice/usage_guard.py) —
+# none of LiveKit Cloud, Deepgram, ElevenLabs, or a host like Render offer a
+# hard spending cap of their own, so the worker enforces one on itself
+# instead of trusting a provider dashboard's after-the-fact email warning.
+# 60 min/day is a deliberately small default for a portfolio demo, not a
+# production sizing — raise it with this env var once you trust the setup.
+MAX_CALL_MINUTES_PER_DAY = float(os.environ.get("VOICE_ORCH_MAX_CALL_MINUTES_PER_DAY", "60"))
+USAGE_FILE = Path(os.environ.get("VOICE_ORCH_USAGE_FILE", ROOT / "data" / "usage_log.json"))
