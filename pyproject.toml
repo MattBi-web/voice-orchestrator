@@ -19,6 +19,16 @@ dependencies = [
 [project.optional-dependencies]
 openai = ["openai>=1.50"]
 gemini = ["google-generativeai>=0.8"]
+# The real-time voice layer (src/voice_orchestrator/voice/) — LiveKit
+# Agents for transport/session, Deepgram for STT, ElevenLabs for TTS,
+# Silero for VAD. Nothing else in this project imports any of these, so
+# the CLI/tests/text-core work with none of it installed.
+voice = [
+  "livekit-agents>=1.8",
+  "livekit-plugins-deepgram>=1.8",
+  "livekit-plugins-elevenlabs>=1.8",
+  "livekit-plugins-silero>=1.8",
+]
 dev = ["pytest>=8.0"]
 
 [project.scripts]

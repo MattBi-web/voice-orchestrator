@@ -1,10 +1,12 @@
 # Voice Orchestrator
 
 A configurable **family of voice agents** — a router plus nested specialists — built around one
-idea: *most routing decisions should never touch an LLM*. It's the text-only core of a voice-agent
-architecture (telephony/STT/TTS attach on top, see "What's deliberately not here" below), designed
-so the agent family, the routing logic, and the memory a call carries are all things you can
-reason about, test, and measure independently.
+idea: *most routing decisions should never touch an LLM*. The router, agent family, memory
+scoping, and tool framework are a provider-agnostic text core (`chat`/`route`/`eval` all run
+against it with zero API keys); a real-time voice layer (LiveKit Agents + Deepgram + ElevenLabs,
+see "Voice layer" below) sits on top of that exact same core, unchanged, so the agent family, the
+routing logic, and the memory a call carries are all things you can reason about, test, and
+measure independently of whether the call is typed or spoken.
 
 Demoed on a fictional telecom customer line, **Meridian Telecom**: a receptionist that routes
 callers to Billing, Sales, or Technical Support — the latter itself split into Internet and
@@ -194,6 +196,72 @@ telephony. A synchronous CLI demo has no such race to solve, so building it now 
 problem this project doesn't have yet. It's a confirmed, concrete item for when real Twilio/Telnyx
 webhooks get wired in, not before.
 
+## Voice layer: LiveKit Agents + Deepgram + ElevenLabs
+
+Everything above is the text core — a call is a Python string in, a Python string out, no audio
+anywhere. `src/voice_orchestrator/voice/` is the real-time layer that sits on top of it, so a
+caller can actually talk instead of typing into `chat`. It changes nothing in `orchestrator.py`,
+`routing/`, `tools/`, or `memory.py` — those are the exact same modules a voice call and a
+`chat` REPL session both run through.
+
+**Why LiveKit Agents, specifically.** The architecture doc compared Twilio/Telnyx/LiveKit for
+transport and picked LiveKit for the reasons laid out there (WebRTC-native, open-source worker
+model, a hosted Cloud tier for testing without touching telephony). What made it the right fit
+*here* too: LiveKit's `Agent` class has one override point, `llm_node()`, that receives the
+conversation so far and is expected to yield reply text — nothing else about the pipeline (audio
+capture, VAD, STT framing, TTS playback, interruption handling) is this project's problem anymore.
+That's the same shape this project already had: `handle_turn()` takes a string, returns a string.
+`llm_node` is just a new place to call it from.
+
+**How it's wired** (three files, each doing one job):
+
+- **`voice/bridge.py`** — no `livekit-agents` import, tested with zero extra dependencies.
+  `VoiceBridge` holds one `CallSession` + the agent family + an `LLMProvider`, same as a `chat`
+  session; `.turn(utterance)` is a one-line call into the existing `handle_turn()`.
+- **`voice/agent.py`** — `OrchestratorAgent(Agent)` overrides `llm_node()`: pulls the latest
+  caller message out of LiveKit's `ChatContext`, calls `bridge.turn()`, yields the reply string.
+  It deliberately never delegates to `Agent.default.llm_node()` — there's no real chat model
+  backing this agent at all, because the router+tools+memory stack *is* the decision-making step,
+  the same thesis the rest of this README argues. The one wrinkle: `handle_turn()` is synchronous
+  and can itself call `asyncio.run()` (`MCPTool.run()` does, to reach the demo MCP server), which
+  would crash if awaited directly inside `llm_node` — already running inside LiveKit's own event
+  loop. `asyncio.to_thread()` runs it on a worker thread instead, sidestepping the "cannot be
+  called from a running event loop" error.
+- **`voice/worker.py`** — the LiveKit worker entrypoint: wires `deepgram.STT(model="nova-3",
+  language="multi")`, `elevenlabs.TTS(model="eleven_flash_v2_5")` (Flash v2.5, not the plugin's
+  default `eleven_turbo_v2_5` — picked for the sub-300ms round-trip budget the architecture doc
+  set), and `silero.VAD.load()`, then starts an `AgentSession` around one `OrchestratorAgent`.
+
+`tests/test_voice_bridge.py` covers the STT-transcript→reply path (including the "blank/noise
+transcript → no reply" case) against `FakeProvider`, with no LiveKit connection, no microphone,
+and no API key — install nothing beyond `pip install -e ".[dev]"` to run it. The three LiveKit
+plugins are only needed to actually *run* a call.
+
+**Running it for real.**
+
+```
+pip install -e ".[voice]"
+cp .env.example .env   # fill in the five keys below, then `export $(cat .env | xargs)` or similar
+python -m voice_orchestrator.voice.worker dev
+```
+
+Four free accounts, no telephony or custom web client needed to try it:
+
+- **[LiveKit Cloud](https://cloud.livekit.io)** — the free Build plan gives 1,000 agent-session
+  minutes/month and 5,000 WebRTC minutes, no credit card required. Create a project, copy
+  `LIVEKIT_URL`/`LIVEKIT_API_KEY`/`LIVEKIT_API_SECRET` from its Settings page.
+- **[Deepgram](https://console.deepgram.com/signup)** — $200 in free credit on signup, no card
+  required; copy the API key into `DEEPGRAM_API_KEY`.
+- **[ElevenLabs](https://elevenlabs.io)** — the free plan includes a monthly character allowance
+  and API access; grab `ELEVENLABS_API_KEY` from account settings (check elevenlabs.io/pricing for
+  the current limits — they change the free tier's numbers more often than the other two).
+
+With those five env vars set, `python -m voice_orchestrator.voice.worker dev` connects to LiveKit's
+hosted **Agents Playground** (a link printed in the terminal) — open it in a browser, grant mic
+access, and talk to Meridian Telecom's receptionist live, no phone number or SIP trunk needed for
+a first test. `start` instead of `dev` is the long-lived-worker mode for when real rooms/SIP
+trunking get wired in later.
+
 ## LLM providers: one abstraction, a free default
 
 `llm.py`'s `LLMProvider` ABC has three methods — `classify`, `respond`, `summarize` — kept
@@ -247,14 +315,25 @@ subprocess, so it needs no API keys or external network either.
 
 ## What's deliberately not here (yet)
 
-This is the **"core testuale prima"** phase, by design: the router, the agent family, the memory
-scoping, the tool framework (including conditions and MCP), and structured events are all
-provider-agnostic and testable without a single API key or phone call. Still explicitly deferred:
-real audio — the `audio/` interfaces are scaffolded but nothing processes an actual audio frame
-yet — and real telephony, including Rapida's `CallContext` pending→claimed state machine (see
-above). LiveKit for transport, Deepgram for STT, ElevenLabs for TTS is the next layer, meant to
-sit on top of `handle_turn()` without changing anything in this core: the architecture doc has the
-reasoning for why those three specifically.
+The router, the agent family, the memory scoping, the tool framework (including conditions and
+MCP), structured events, and — as of the voice layer above — a real LiveKit/Deepgram/ElevenLabs
+audio pipeline are all built and tested. Still explicitly deferred:
+
+- **Real telephony.** The voice layer talks to LiveKit's Agents Playground (browser mic) or any
+  LiveKit room, but nothing here wires up a phone number via SIP/Twilio/Telnyx trunking yet. That
+  also means Rapida's `CallContext` pending→claimed state machine (see above) still has no race
+  to solve — it shows up the moment a telephony webhook and a media connection can arrive out of
+  order, which a Playground-only call never does.
+- **The `audio/` provider interfaces** (`VADProvider`, `EndOfSpeechProvider`, `DenoiserProvider`)
+  are still scaffolding, not wired into the real pipeline — `worker.py` uses LiveKit's own Silero
+  VAD plugin directly instead. They stay as the documented attachment point for a future
+  non-LiveKit transport, or for swapping in a different VAD/denoiser than whatever LiveKit's
+  plugin ecosystem offers.
+- **Downward-only routing and the leaf-agent escape hatch** (see `routing/router.py`'s docstring)
+  — unchanged by adding real audio; still a property of the router itself, not the transport.
+- **Real multi-turn voice latency measurement.** The eval set and `RoutingEvent.latency_ms`
+  measure routing/tool latency against text input; nothing yet measures the full voice round-trip
+  (STT partial → router → TTS first byte) the architecture doc's sub-300ms budget was about.
 
 ## License
 
