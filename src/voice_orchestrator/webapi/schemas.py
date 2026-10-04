@@ -25,10 +25,16 @@ class AgentIn(BaseModel):
     description: str = ""
     system_prompt: str = ""
     eligibility: str = ""
-    voice: str = "default"
     triggers: list[str] = Field(default_factory=list)
     tools: list[ToolBindingSchema] = Field(default_factory=list)
     knowledge: list[str] = Field(default_factory=list)
+    first_message: str = ""
+    llm_provider: str = ""
+    llm_model: str = ""
+    llm_temperature: float | None = None
+    voice_id: str = ""
+    voice_stability: float | None = None
+    voice_speed: float | None = None
 
 
 class AgentUpdate(BaseModel):
@@ -36,10 +42,25 @@ class AgentUpdate(BaseModel):
     description: str = ""
     system_prompt: str = ""
     eligibility: str = ""
-    voice: str = "default"
     triggers: list[str] = Field(default_factory=list)
     tools: list[ToolBindingSchema] = Field(default_factory=list)
     knowledge: list[str] = Field(default_factory=list)
+    first_message: str = ""
+    llm_provider: str = ""
+    llm_model: str = ""
+    llm_temperature: float | None = None
+    voice_id: str = ""
+    voice_stability: float | None = None
+    voice_speed: float | None = None
+
+
+class AgentLayoutUpdate(BaseModel):
+    """Blocco 4 — the graph view's drag-and-drop PATCHes just this, not a
+    whole AgentUpdate, so repositioning a node can't accidentally touch
+    anything else about it."""
+
+    layout_x: float
+    layout_y: float
 
 
 class AgentOut(BaseModel):
@@ -49,10 +70,18 @@ class AgentOut(BaseModel):
     description: str
     system_prompt: str
     eligibility: str
-    voice: str
     triggers: list[str]
     tools: list[ToolBindingSchema]
     knowledge: list[str]
+    first_message: str
+    llm_provider: str
+    llm_model: str
+    llm_temperature: float | None
+    voice_id: str
+    voice_stability: float | None
+    voice_speed: float | None
+    layout_x: float | None = None
+    layout_y: float | None = None
     children: list["AgentOut"] = Field(default_factory=list)
     children_ids: list[str] = Field(default_factory=list)
 
@@ -69,10 +98,18 @@ def row_to_out(row: AgentRow, children: list[AgentOut] | None = None) -> AgentOu
         description=row.description,
         system_prompt=row.system_prompt,
         eligibility=row.eligibility,
-        voice=row.voice,
         triggers=row.triggers,
         tools=[ToolBindingSchema(**t) for t in row.tools],
         knowledge=row.knowledge,
+        first_message=row.first_message,
+        llm_provider=row.llm_provider,
+        llm_model=row.llm_model,
+        llm_temperature=row.llm_temperature,
+        voice_id=row.voice_id,
+        voice_stability=row.voice_stability,
+        voice_speed=row.voice_speed,
+        layout_x=row.layout_x,
+        layout_y=row.layout_y,
         children=children,
         children_ids=[c.id for c in children],
     )

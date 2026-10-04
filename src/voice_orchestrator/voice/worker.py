@@ -97,6 +97,21 @@ async def entrypoint(ctx: JobContext) -> None:
         # why that's deliberate rather than an oversight.
     )
     await session.start(agent=OrchestratorAgent(bridge), room=ctx.room)
+    # Blocco 2's first_message, root-agent only: a sub-agent reached via
+    # handoff responds to whatever triggered the handoff instead, so only
+    # the receptionist needs to speak before hearing anything. session.say()
+    # bypasses llm_node entirely (literal TTS of this text, not a "turn"),
+    # so it's not recorded via handle_turn()/session.add_turn() the way a
+    # real reply is — call_log's transcript simply starts from the
+    # caller's first utterance, same as before this field existed.
+    if bridge.root.first_message:
+        # Same lazy-init handle_turn() does on the first real turn
+        # (orchestrator.py's _ensure_started) — done here too so
+        # OrchestratorAgent.tts_node() already has a current_agent_id to
+        # resolve a voice override from, in case the root itself has one.
+        if not bridge.session.agent_path:
+            bridge.session.agent_path = [bridge.root.id]
+        await session.say(bridge.root.first_message)
 
 
 if __name__ == "__main__":

@@ -1,8 +1,11 @@
 import { useState } from 'react'
 import type { Agent, ToolBinding } from '../types'
 import { api, ApiError } from '../api'
+import { EligibilityBuilder } from './EligibilityBuilder'
 import { ListEditor } from './ListEditor'
+import { LlmOverridePicker } from './LlmOverridePicker'
 import { ToolsEditor } from './ToolsEditor'
+import { VoicePicker } from './VoicePicker'
 
 interface FormState {
   id: string
@@ -10,10 +13,16 @@ interface FormState {
   description: string
   system_prompt: string
   eligibility: string
-  voice: string
   triggers: string[]
   tools: ToolBinding[]
   knowledge: string[]
+  first_message: string
+  llm_provider: string
+  llm_model: string
+  llm_temperature: number | null
+  voice_id: string
+  voice_stability: number | null
+  voice_speed: number | null
 }
 
 function blank(id = ''): FormState {
@@ -23,10 +32,16 @@ function blank(id = ''): FormState {
     description: '',
     system_prompt: '',
     eligibility: '',
-    voice: 'default',
     triggers: [],
     tools: [],
     knowledge: [],
+    first_message: '',
+    llm_provider: '',
+    llm_model: '',
+    llm_temperature: null,
+    voice_id: '',
+    voice_stability: null,
+    voice_speed: null,
   }
 }
 
@@ -37,10 +52,16 @@ function fromAgent(a: Agent): FormState {
     description: a.description,
     system_prompt: a.system_prompt,
     eligibility: a.eligibility,
-    voice: a.voice,
     triggers: a.triggers,
     tools: a.tools,
     knowledge: a.knowledge,
+    first_message: a.first_message,
+    llm_provider: a.llm_provider,
+    llm_model: a.llm_model,
+    llm_temperature: a.llm_temperature,
+    voice_id: a.voice_id,
+    voice_stability: a.voice_stability,
+    voice_speed: a.voice_speed,
   }
 }
 
@@ -68,6 +89,7 @@ export function AgentForm({ mode, initial, parentId, parentName, availableTools,
     setError(null)
     setSaving(true)
     try {
+      const voiceId = state.voice_id.trim()
       if (mode === 'create') {
         await api.createAgent({
           id: state.id.trim(),
@@ -76,10 +98,16 @@ export function AgentForm({ mode, initial, parentId, parentName, availableTools,
           description: state.description,
           system_prompt: state.system_prompt,
           eligibility: state.eligibility,
-          voice: state.voice,
           triggers: state.triggers.filter((t) => t.trim() !== ''),
           tools: state.tools.filter((t) => t.id.trim() !== ''),
           knowledge: state.knowledge.filter((k) => k.trim() !== ''),
+          first_message: state.first_message,
+          llm_provider: state.llm_provider,
+          llm_model: state.llm_model,
+          llm_temperature: state.llm_provider ? state.llm_temperature : null,
+          voice_id: voiceId,
+          voice_stability: voiceId ? state.voice_stability : null,
+          voice_speed: voiceId ? state.voice_speed : null,
         })
       } else if (initial) {
         await api.updateAgent(initial.id, {
@@ -87,10 +115,16 @@ export function AgentForm({ mode, initial, parentId, parentName, availableTools,
           description: state.description,
           system_prompt: state.system_prompt,
           eligibility: state.eligibility,
-          voice: state.voice,
           triggers: state.triggers.filter((t) => t.trim() !== ''),
           tools: state.tools.filter((t) => t.id.trim() !== ''),
           knowledge: state.knowledge.filter((k) => k.trim() !== ''),
+          first_message: state.first_message,
+          llm_provider: state.llm_provider,
+          llm_model: state.llm_model,
+          llm_temperature: state.llm_provider ? state.llm_temperature : null,
+          voice_id: voiceId,
+          voice_stability: voiceId ? state.voice_stability : null,
+          voice_speed: voiceId ? state.voice_speed : null,
         })
       }
       onSaved()
@@ -157,19 +191,35 @@ export function AgentForm({ mode, initial, parentId, parentName, availableTools,
         />
       </div>
 
+      <EligibilityBuilder value={state.eligibility} onChange={(eligibility) => update({ eligibility })} />
+
       <div className="field">
-        <label>Eligibility (Level-1 gate expression)</label>
-        <input
-          value={state.eligibility}
-          onChange={(e) => update({ eligibility: e.target.value })}
-          placeholder="e.g. authenticated == true"
+        <label>First message (blocco 2)</label>
+        <textarea
+          rows={2}
+          value={state.first_message}
+          onChange={(e) => update({ first_message: e.target.value })}
+          placeholder="Cosa dice questo agente prima di sentire il chiamante — vuoto = resta in silenzio"
         />
       </div>
 
-      <div className="field">
-        <label>Voice</label>
-        <input value={state.voice} onChange={(e) => update({ voice: e.target.value })} />
-      </div>
+      <LlmOverridePicker
+        value={{
+          llm_provider: state.llm_provider,
+          llm_model: state.llm_model,
+          llm_temperature: state.llm_temperature,
+        }}
+        onChange={(v) => update(v)}
+      />
+
+      <VoicePicker
+        value={{
+          voice_id: state.voice_id,
+          voice_stability: state.voice_stability,
+          voice_speed: state.voice_speed,
+        }}
+        onChange={(v) => update(v)}
+      />
 
       <ListEditor
         label="Triggers (Level-2 keywords)"

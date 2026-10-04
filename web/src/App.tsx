@@ -3,6 +3,7 @@ import type { Agent } from './types'
 import { api, ApiError } from './api'
 import { findAgent } from './tree'
 import { Tree } from './components/Tree'
+import { AgentGraph } from './components/AgentGraph'
 import { AgentForm } from './components/AgentForm'
 import { TestBox } from './components/TestBox'
 import { VoiceTestConsole } from './components/VoiceTestConsole'
@@ -17,9 +18,11 @@ type Selection =
   | { kind: 'create'; parentId: string }
 
 type View = 'builder' | 'voice' | 'dashboard' | 'conversations'
+type BuilderSubview = 'tree' | 'graph'
 
 function App() {
   const [view, setView] = useState<View>('builder')
+  const [builderSubview, setBuilderSubview] = useState<BuilderSubview>('tree')
   const [selectedCallId, setSelectedCallId] = useState<string | null>(null)
   const [root, setRoot] = useState<Agent | null>(null)
   const [tools, setTools] = useState<string[]>([])
@@ -90,8 +93,7 @@ function App() {
         <h1>voice-orchestrator — agent builder</h1>
         <p className="app__subtitle">
           Editing the SQLite-backed agent family (seeded once from{' '}
-          <code>config/agents.yaml</code>, then independent of it — "Esporta" in the sidebar writes it back on
-          demand).
+          <code>config/agents.yaml</code>, then independent of it — "Esporta" writes it back on demand).
         </p>
         <nav className="app__tabs">
           <button
@@ -141,25 +143,58 @@ function App() {
       ) : loading ? (
         <p>Loading…</p>
       ) : (
-        <div className="app__layout">
-          <aside className="app__sidebar">
-            <Tree
-              root={root}
-              selectedId={selection.kind === 'edit' ? selection.agentId : null}
-              onSelect={(id) => setSelection({ kind: 'edit', agentId: id })}
-              onAddChild={(parentId) => setSelection({ kind: 'create', parentId })}
-            />
+        <div className={builderSubview === 'graph' ? 'app__layout app__layout--graph' : 'app__layout'}>
+          <div className="app__builder-topbar">
+            <div className="app__subtabs">
+              <button
+                type="button"
+                className={builderSubview === 'tree' ? 'app__tab app__tab--active' : 'app__tab'}
+                onClick={() => setBuilderSubview('tree')}
+              >
+                Albero
+              </button>
+              <button
+                type="button"
+                className={builderSubview === 'graph' ? 'app__tab app__tab--active' : 'app__tab'}
+                onClick={() => setBuilderSubview('graph')}
+              >
+                Grafo
+              </button>
+            </div>
             <div className="app__export">
               <button type="button" className="btn-link" onClick={handleExport} disabled={exporting}>
                 {exporting ? 'Esporto…' : '↓ Esporta verso agents.yaml'}
               </button>
-              <p className="app__export-hint">
-                Così la CLI e il test vocale vedono quello che modifichi qui. Non automatico — va rifatto a ogni
-                cambio che vuoi propagare.
-              </p>
               {exportResult && <p className="app__export-result">{exportResult}</p>}
             </div>
-          </aside>
+          </div>
+
+          {builderSubview === 'graph' && (
+            <div className="app__graph-panel">
+              <AgentGraph
+                root={root}
+                selectedId={selection.kind === 'edit' ? selection.agentId : null}
+                onSelect={(id) => setSelection({ kind: 'edit', agentId: id })}
+                onAddChild={(parentId) => setSelection({ kind: 'create', parentId })}
+                onChanged={reload}
+              />
+            </div>
+          )}
+
+          {builderSubview === 'tree' && (
+            <aside className="app__sidebar">
+              <Tree
+                root={root}
+                selectedId={selection.kind === 'edit' ? selection.agentId : null}
+                onSelect={(id) => setSelection({ kind: 'edit', agentId: id })}
+                onAddChild={(parentId) => setSelection({ kind: 'create', parentId })}
+              />
+              <p className="app__export-hint">
+                "Esporta" scrive la famiglia attuale su agents.yaml — così la CLI e il test vocale la vedono. Non
+                automatico — va rifatto a ogni cambio che vuoi propagare.
+              </p>
+            </aside>
+          )}
 
           <main className="app__main">
             {selection.kind === 'edit' && selectedAgent && (

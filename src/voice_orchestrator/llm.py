@@ -50,12 +50,13 @@ class LLMProvider(ABC):
         context_summary: str,
         recent_turns: list[Turn],
         tool_notes: list[str],
+        temperature: float | None = None,
     ) -> str: ...
 
     @abstractmethod
     def summarize(self, previous_summary: str, turns: list[Turn]) -> str: ...
 
-    def complete(self, system: str, user: str, max_tokens: int = 800) -> str:
+    def complete(self, system: str, user: str, max_tokens: int = 800, temperature: float | None = None) -> str:
         """A plain system+user completion — used by `analysis.py` for post-call
         evaluation, which needs free-form JSON rather than one of the three
         call-path capabilities above. Deliberately not abstract: the call path
@@ -95,7 +96,11 @@ class FakeProvider(LLMProvider):
         context_summary: str,
         recent_turns: list[Turn],
         tool_notes: list[str],
+        temperature: float | None = None,
     ) -> str:
+        # No real model underneath, so temperature is accepted (same
+        # signature as every other provider) but has nothing to act on —
+        # FakeProvider is deterministic by design.
         if tool_notes:
             return f"[{agent.name}] " + " ".join(tool_notes)
         return f"[{agent.name}] Ho capito: «hai detto '{utterance.strip()}'» — come posso aiutarti su questo?"
@@ -113,17 +118,19 @@ class AnthropicProvider(LLMProvider):
         self._client = anthropic.Anthropic()
         self._model = model
 
-    def _complete(self, system: str, user: str, max_tokens: int = 300) -> str:
+    def _complete(self, system: str, user: str, max_tokens: int = 300, temperature: float | None = None) -> str:
+        kwargs = {} if temperature is None else {"temperature": temperature}
         response = self._client.messages.create(
             model=self._model,
             max_tokens=max_tokens,
             system=system,
             messages=[{"role": "user", "content": user}],
+            **kwargs,
         )
         return "".join(b.text for b in response.content if b.type == "text").strip()
 
-    def complete(self, system: str, user: str, max_tokens: int = 800) -> str:
-        return self._complete(system, user, max_tokens=max_tokens)
+    def complete(self, system: str, user: str, max_tokens: int = 800, temperature: float | None = None) -> str:
+        return self._complete(system, user, max_tokens=max_tokens, temperature=temperature)
 
     def classify(
         self, utterance: str, candidates: list[AgentSpec], current_agent_id: str, session: CallSession
@@ -146,6 +153,7 @@ class AnthropicProvider(LLMProvider):
         context_summary: str,
         recent_turns: list[Turn],
         tool_notes: list[str],
+        temperature: float | None = None,
     ) -> str:
         system = agent.system_prompt or f"You are {agent.name}, a helpful phone agent."
         context = f"Conversation so far: {context_summary}\n\n" if context_summary else ""
@@ -153,7 +161,7 @@ class AnthropicProvider(LLMProvider):
         if tool_notes:
             context += "Tool results to ground your reply on:\n" + "\n".join(tool_notes) + "\n\n"
         user = f"{context}Caller just said: {utterance!r}\n\nReply as the agent, briefly (voice call, not chat)."
-        return self._complete(system, user)
+        return self._complete(system, user, temperature=temperature)
 
     def summarize(self, previous_summary: str, turns: list[Turn]) -> str:
         system = "Condense this call so far into 2-3 short sentences an agent can resume from."
@@ -168,16 +176,18 @@ class OpenAIProvider(LLMProvider):
         self._client = OpenAI()
         self._model = model
 
-    def _complete(self, system: str, user: str, max_tokens: int = 300) -> str:
+    def _complete(self, system: str, user: str, max_tokens: int = 300, temperature: float | None = None) -> str:
+        kwargs = {} if temperature is None else {"temperature": temperature}
         response = self._client.chat.completions.create(
             model=self._model,
             max_tokens=max_tokens,
             messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
+            **kwargs,
         )
         return (response.choices[0].message.content or "").strip()
 
-    def complete(self, system: str, user: str, max_tokens: int = 800) -> str:
-        return self._complete(system, user, max_tokens=max_tokens)
+    def complete(self, system: str, user: str, max_tokens: int = 800, temperature: float | None = None) -> str:
+        return self._complete(system, user, max_tokens=max_tokens, temperature=temperature)
 
     def classify(
         self, utterance: str, candidates: list[AgentSpec], current_agent_id: str, session: CallSession
@@ -191,12 +201,12 @@ class OpenAIProvider(LLMProvider):
         ids = {a.id for a in candidates}
         return reply if reply in ids or reply == STAY else STAY
 
-    def respond(self, agent, utterance, context_summary, recent_turns, tool_notes) -> str:
+    def respond(self, agent, utterance, context_summary, recent_turns, tool_notes, temperature=None) -> str:
         system = agent.system_prompt or f"You are {agent.name}, a helpful phone agent."
         context = f"Conversation so far: {context_summary}\n\n" if context_summary else ""
         if tool_notes:
             context += "Tool results:\n" + "\n".join(tool_notes) + "\n\n"
-        return self._complete(system, f"{context}Caller said: {utterance!r}. Reply briefly.")
+        return self._complete(system, f"{context}Caller said: {utterance!r}. Reply briefly.", temperature=temperature)
 
     def summarize(self, previous_summary: str, turns: list[Turn]) -> str:
         return self._complete(
@@ -213,11 +223,14 @@ class GeminiProvider(LLMProvider):
         genai.configure(api_key=os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY"))
         self._model = genai.GenerativeModel(model)
 
-    def _complete(self, prompt: str) -> str:
-        return self._model.generate_content(prompt).text.strip()
+    def _complete(self, prompt: str, temperature: float | None = None) -> str:
+        import google.generativeai as genai
 
-    def complete(self, system: str, user: str, max_tokens: int = 800) -> str:
-        return self._complete(f"{system}\n\n{user}")
+        kwargs = {} if temperature is None else {"generation_config": genai.GenerationConfig(temperature=temperature)}
+        return self._model.generate_content(prompt, **kwargs).text.strip()
+
+    def complete(self, system: str, user: str, max_tokens: int = 800, temperature: float | None = None) -> str:
+        return self._complete(f"{system}\n\n{user}", temperature=temperature)
 
     def classify(
         self, utterance: str, candidates: list[AgentSpec], current_agent_id: str, session: CallSession
@@ -230,26 +243,60 @@ class GeminiProvider(LLMProvider):
         ids = {a.id for a in candidates}
         return reply if reply in ids or reply == STAY else STAY
 
-    def respond(self, agent, utterance, context_summary, recent_turns, tool_notes) -> str:
+    def respond(self, agent, utterance, context_summary, recent_turns, tool_notes, temperature=None) -> str:
         system = agent.system_prompt or f"You are {agent.name}, a helpful phone agent."
         context = f"Conversation so far: {context_summary}\n\n" if context_summary else ""
         if tool_notes:
             context += "Tool results:\n" + "\n".join(tool_notes) + "\n\n"
-        return self._complete(f"{system}\n\n{context}Caller said: {utterance!r}. Reply briefly.")
+        return self._complete(
+            f"{system}\n\n{context}Caller said: {utterance!r}. Reply briefly.", temperature=temperature
+        )
 
     def summarize(self, previous_summary: str, turns: list[Turn]) -> str:
         return self._complete(f"Condense into 2-3 sentences.\n{previous_summary}\n{_format_turns(turns)}")
 
 
-def get_provider(name: str | None = None) -> LLMProvider:
+def get_provider(name: str | None = None, model: str | None = None) -> LLMProvider:
     name = (name or config.PROVIDER).lower()
+    kwargs = {} if not model else {"model": model}
     try:
         if name == "anthropic":
-            return AnthropicProvider()
+            return AnthropicProvider(**kwargs)
         if name == "openai":
-            return OpenAIProvider()
+            return OpenAIProvider(**kwargs)
         if name == "gemini":
-            return GeminiProvider()
+            return GeminiProvider(**kwargs)
     except Exception:
         return FakeProvider()
     return FakeProvider()
+
+
+# Per-agent provider instances (blocco 2), cached by (provider name, model):
+# AnthropicProvider/OpenAIProvider/GeminiProvider each open a real client in
+# __init__, so resolving a fresh one on every single turn would reopen that
+# client every time instead of reusing it — same reasoning as any other
+# connection pool. Keyed process-wide rather than per-call/per-session
+# because the whole point is that two different calls routing into the same
+# agent share one client.
+_agent_provider_cache: dict[tuple[str, str], LLMProvider] = {}
+
+
+def get_provider_for_agent(agent: AgentSpec, default: LLMProvider) -> LLMProvider:
+    """What orchestrator.py calls to decide which provider composes
+    *this* agent's reply. An agent with no `llm_provider` override just
+    inherits `default` (the provider the call is already using) — so a
+    family where no agent sets this behaves exactly as before blocco 2.
+    `get_provider()` itself already falls back to FakeProvider on any
+    construction error (missing key, bad model name, network/import
+    failure), so a typo'd provider name here degrades the same way a bad
+    global VOICE_ORCH_PROVIDER would, not with an unhandled exception
+    mid-call."""
+    if not agent.llm_provider:
+        return default
+    key = (agent.llm_provider.lower(), agent.llm_model or "")
+    cached = _agent_provider_cache.get(key)
+    if cached is not None:
+        return cached
+    provider = get_provider(agent.llm_provider, model=agent.llm_model or None)
+    _agent_provider_cache[key] = provider
+    return provider

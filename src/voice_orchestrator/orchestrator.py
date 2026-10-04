@@ -9,7 +9,7 @@ from dataclasses import dataclass
 
 from . import observability
 from .agents.registry import AgentSpec
-from .llm import LLMProvider
+from .llm import LLMProvider, get_provider_for_agent
 from .memory import maybe_condense
 from .routing import gate
 from .routing.router import RoutingDecision, route
@@ -89,12 +89,20 @@ def handle_turn(session: CallSession, root: AgentSpec, utterance: str, provider:
                 agent_id=current.id,
             )
 
-    reply = provider.respond(
+    # Blocco 2: an agent can override which LLM composes *its* reply
+    # (AgentSpec.llm_provider/llm_model/llm_temperature) — `provider` here
+    # stays the call's own default/fallback, used as-is for classify()
+    # above (routing shouldn't vary per destination agent) and for
+    # summarize() below (it condenses the whole call, not one agent's
+    # turn). Only respond() is agent-specific.
+    responder = get_provider_for_agent(current, default=provider)
+    reply = responder.respond(
         agent=current,
         utterance=utterance,
         context_summary=session.rolling_summary,
         recent_turns=session.last_turns(2),
         tool_notes=tool_notes,
+        temperature=current.llm_temperature,
     )
     session.add_turn("agent", reply, agent_id=current.id)
 

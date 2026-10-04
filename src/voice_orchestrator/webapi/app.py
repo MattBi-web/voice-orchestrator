@@ -35,6 +35,7 @@ from .models import AgentRow
 from .repository import AgentInput
 from .schemas import (
     AgentIn,
+    AgentLayoutUpdate,
     AgentOut,
     AgentUpdate,
     AnalysisConfigSchema,
@@ -191,10 +192,16 @@ def create_agent(body: AgentIn, session: Session = Depends(get_session)) -> Agen
         description=body.description,
         system_prompt=body.system_prompt,
         eligibility=body.eligibility,
-        voice=body.voice,
         triggers=body.triggers,
         tools=[t.model_dump() for t in body.tools],
         knowledge=body.knowledge,
+        first_message=body.first_message,
+        llm_provider=body.llm_provider,
+        llm_model=body.llm_model,
+        llm_temperature=body.llm_temperature,
+        voice_id=body.voice_id,
+        voice_stability=body.voice_stability,
+        voice_speed=body.voice_speed,
     )
     try:
         row = repository.create_agent(session, data)
@@ -214,13 +221,33 @@ def update_agent(agent_id: str, body: AgentUpdate, session: Session = Depends(ge
         description=body.description,
         system_prompt=body.system_prompt,
         eligibility=body.eligibility,
-        voice=body.voice,
         triggers=body.triggers,
         tools=[t.model_dump() for t in body.tools],
         knowledge=body.knowledge,
+        first_message=body.first_message,
+        llm_provider=body.llm_provider,
+        llm_model=body.llm_model,
+        llm_temperature=body.llm_temperature,
+        voice_id=body.voice_id,
+        voice_stability=body.voice_stability,
+        voice_speed=body.voice_speed,
     )
     try:
         row = repository.update_agent(session, agent_id, data)
+    except repository.AgentNotFound:
+        raise HTTPException(404, f"No agent with id={agent_id!r}")
+    return row_to_out(row)
+
+
+@app.patch("/api/agents/{agent_id}/layout", response_model=AgentOut)
+def update_agent_layout(
+    agent_id: str, body: AgentLayoutUpdate, session: Session = Depends(get_session)
+) -> AgentOut:
+    """Blocco 4: the graph view calls this after a drag, instead of a full
+    PUT, so repositioning a node is one small, frequent write rather than
+    resending the whole agent form."""
+    try:
+        row = repository.update_layout(session, agent_id, body.layout_x, body.layout_y)
     except repository.AgentNotFound:
         raise HTTPException(404, f"No agent with id={agent_id!r}")
     return row_to_out(row)

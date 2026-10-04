@@ -7,43 +7,65 @@ export interface ToolBinding {
   condition: string
 }
 
-export interface Agent {
+// Blocco 2 fields: "" / null means "inherit the family/global default" —
+// see agents/registry.py's AgentSpec docstring for the full rationale.
+export interface AgentLlmOverride {
+  llm_provider: string
+  llm_model: string
+  llm_temperature: number | null
+}
+
+export interface AgentVoiceOverride {
+  voice_id: string
+  voice_stability: number | null
+  voice_speed: number | null
+}
+
+export interface Agent extends AgentLlmOverride, AgentVoiceOverride {
   id: string
   parent_id: string | null
   name: string
   description: string
   system_prompt: string
   eligibility: string
-  voice: string
   triggers: string[]
   tools: ToolBinding[]
   knowledge: string[]
+  first_message: string
+  // Blocco 4: where the graph view last left this node, null = auto-layout.
+  layout_x: number | null
+  layout_y: number | null
   children: Agent[]
   children_ids: string[]
 }
 
-export interface AgentInput {
+export interface AgentInput extends AgentLlmOverride, AgentVoiceOverride {
   id: string
   parent_id: string | null
   name: string
   description: string
   system_prompt: string
   eligibility: string
-  voice: string
   triggers: string[]
   tools: ToolBinding[]
   knowledge: string[]
+  first_message: string
 }
 
-export interface AgentUpdateInput {
+export interface AgentUpdateInput extends AgentLlmOverride, AgentVoiceOverride {
   name: string
   description: string
   system_prompt: string
   eligibility: string
-  voice: string
   triggers: string[]
   tools: ToolBinding[]
   knowledge: string[]
+  first_message: string
+}
+
+export interface AgentLayoutUpdate {
+  layout_x: number
+  layout_y: number
 }
 
 export interface TestRouteResult {

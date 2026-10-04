@@ -39,7 +39,13 @@ def _insert_subtree(session: Session, node: AgentSpec, parent_id: str | None, po
         description=node.description,
         system_prompt=node.system_prompt,
         eligibility=node.eligibility,
-        voice=node.voice,
+        first_message=node.first_message,
+        llm_provider=node.llm_provider,
+        llm_model=node.llm_model,
+        llm_temperature=node.llm_temperature,
+        voice_id=node.voice_id,
+        voice_stability=node.voice_stability,
+        voice_speed=node.voice_speed,
         position=position,
     )
     row.triggers = node.triggers

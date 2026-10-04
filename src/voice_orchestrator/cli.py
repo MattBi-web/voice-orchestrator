@@ -140,6 +140,10 @@ def chat(
     started_at = datetime.now(timezone.utc)
 
     console.print("[bold]Meridian Telecom[/bold] — digita 'exit' per terminare la chiamata.\n")
+    if root.first_message:
+        console.print(f"[bold magenta]{root.name}:[/bold magenta] {root.first_message}")
+        session.agent_path = [root.id]
+        session.add_turn("agent", root.first_message, agent_id=root.id)
     while True:
         utterance = console.input("[bold cyan]Tu:[/bold cyan] ")
         if utterance.strip().lower() in {"exit", "quit"}:

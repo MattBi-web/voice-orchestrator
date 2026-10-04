@@ -47,10 +47,16 @@ class AgentInput:
     description: str = ""
     system_prompt: str = ""
     eligibility: str = ""
-    voice: str = "default"
     triggers: list[str] | None = None
     tools: list[dict] | None = None  # [{"id": ..., "condition": ""}]
     knowledge: list[str] | None = None
+    first_message: str = ""
+    llm_provider: str = ""
+    llm_model: str = ""
+    llm_temperature: float | None = None
+    voice_id: str = ""
+    voice_stability: float | None = None
+    voice_speed: float | None = None
 
 
 def row_to_spec(row: AgentRow) -> AgentSpec:
@@ -65,7 +71,13 @@ def row_to_spec(row: AgentRow) -> AgentSpec:
         triggers=row.triggers,
         tools=[ToolBinding(id=t["id"], condition=t.get("condition", "")) for t in row.tools],
         knowledge=row.knowledge,
-        voice=row.voice,
+        first_message=row.first_message,
+        llm_provider=row.llm_provider,
+        llm_model=row.llm_model,
+        llm_temperature=row.llm_temperature,
+        voice_id=row.voice_id,
+        voice_stability=row.voice_stability,
+        voice_speed=row.voice_speed,
         children=[],
     )
 
@@ -119,7 +131,13 @@ def create_agent(session: Session, data: AgentInput) -> AgentRow:
         description=data.description,
         system_prompt=data.system_prompt,
         eligibility=data.eligibility,
-        voice=data.voice,
+        first_message=data.first_message,
+        llm_provider=data.llm_provider,
+        llm_model=data.llm_model,
+        llm_temperature=data.llm_temperature,
+        voice_id=data.voice_id,
+        voice_stability=data.voice_stability,
+        voice_speed=data.voice_speed,
         position=len(siblings),
     )
     row.triggers = data.triggers or []
@@ -136,10 +154,28 @@ def update_agent(session: Session, agent_id: str, data: AgentInput) -> AgentRow:
     row.description = data.description
     row.system_prompt = data.system_prompt
     row.eligibility = data.eligibility
-    row.voice = data.voice
+    row.first_message = data.first_message
+    row.llm_provider = data.llm_provider
+    row.llm_model = data.llm_model
+    row.llm_temperature = data.llm_temperature
+    row.voice_id = data.voice_id
+    row.voice_stability = data.voice_stability
+    row.voice_speed = data.voice_speed
     row.triggers = data.triggers or []
     row.tools = data.tools or []
     row.knowledge = data.knowledge or []
+    session.flush()
+    return row
+
+
+def update_layout(session: Session, agent_id: str, x: float, y: float) -> AgentRow:
+    """Blocco 4: persists where the graph view's drag-and-drop left a node.
+    Deliberately its own tiny write, separate from update_agent's full-form
+    save — dragging a node shouldn't require (or risk clobbering) the rest
+    of that agent's fields."""
+    row = get_row(session, agent_id)
+    row.layout_x = x
+    row.layout_y = y
     session.flush()
     return row
 

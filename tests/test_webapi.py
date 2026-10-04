@@ -89,6 +89,64 @@ def test_create_get_update_delete_roundtrip(client):
     assert client.get("/api/agents/vip_support").status_code == 404
 
 
+def test_create_and_update_round_trip_blocco2_fields(client):
+    """first_message/llm_*/voice_* (blocco 2) survive a create, a GET, and
+    an update — the same round-trip test_create_get_update_delete_roundtrip
+    already does for the pre-existing fields, just for the new ones."""
+    created = client.post(
+        "/api/agents",
+        json={
+            "id": "vip_support",
+            "parent_id": "sales",
+            "name": "VIP Escalations",
+            "first_message": "Buongiorno, sono l'assistenza VIP.",
+            "llm_provider": "fake",
+            "llm_model": "",
+            "llm_temperature": 0.3,
+            "voice_id": "it-female-1",
+            "voice_stability": 0.6,
+            "voice_speed": 1.1,
+        },
+    )
+    assert created.status_code == 201
+    body = created.json()
+    assert body["first_message"] == "Buongiorno, sono l'assistenza VIP."
+    assert body["llm_provider"] == "fake"
+    assert body["llm_temperature"] == 0.3
+    assert body["voice_id"] == "it-female-1"
+    assert body["voice_stability"] == 0.6
+    assert body["voice_speed"] == 1.1
+    assert body["layout_x"] is None and body["layout_y"] is None
+
+    updated = client.put(
+        "/api/agents/vip_support",
+        json={"name": "VIP Escalations", "llm_provider": "", "voice_id": "", "llm_temperature": None},
+    )
+    assert updated.status_code == 200
+    assert updated.json()["llm_provider"] == ""
+    assert updated.json()["voice_id"] == ""
+    assert updated.json()["llm_temperature"] is None
+
+
+def test_agent_layout_patch_persists_position_without_touching_other_fields(client):
+    before = client.get("/api/agents/billing").json()
+
+    patched = client.patch("/api/agents/billing/layout", json={"layout_x": 120.5, "layout_y": -30.0})
+    assert patched.status_code == 200
+    assert patched.json()["layout_x"] == 120.5
+    assert patched.json()["layout_y"] == -30.0
+    assert patched.json()["name"] == before["name"]
+    assert patched.json()["system_prompt"] == before["system_prompt"]
+
+    refetched = client.get("/api/agents/billing").json()
+    assert refetched["layout_x"] == 120.5
+
+
+def test_agent_layout_patch_unknown_agent_is_404(client):
+    r = client.patch("/api/agents/does_not_exist/layout", json={"layout_x": 1, "layout_y": 1})
+    assert r.status_code == 404
+
+
 def test_create_rejects_duplicate_id(client):
     r = client.post("/api/agents", json={"id": "billing", "parent_id": "router", "name": "dup"})
     assert r.status_code == 409

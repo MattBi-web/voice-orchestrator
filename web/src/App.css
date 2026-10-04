@@ -945,4 +945,199 @@
   .app__sidebar {
     position: static;
   }
+  .app__builder-topbar {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  .eligibility-builder {
+    flex-direction: column;
+  }
+  .eligibility-builder select {
+    flex: 1;
+  }
+}
+
+/* ---- Builder top bar (Albero/Grafo toggle + export) ---- */
+
+.app__builder-topbar {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 8px;
+  margin-bottom: 4px;
+}
+
+.app__subtabs {
+  display: flex;
+  gap: 4px;
+}
+
+.app__layout--graph {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.app__graph-panel {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+
+.agent-graph {
+  min-width: 0;
+}
+
+.field-hint {
+  font-size: 11px;
+  opacity: 0.65;
+}
+
+/* ---- Eligibility builder ---- */
+
+.eligibility-builder {
+  display: flex;
+  gap: 6px;
+}
+
+.eligibility-builder input {
+  flex: 1;
+  min-width: 0;
+}
+
+.eligibility-builder select {
+  flex: 0 0 150px;
+}
+
+/* ---- Voice / LLM pickers ---- */
+
+.voice-picker__sliders {
+  display: flex;
+  gap: 16px;
+  margin-top: 4px;
+  flex-wrap: wrap;
+}
+
+.voice-picker__slider {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  opacity: 0.85;
+  flex: 1;
+  min-width: 140px;
+}
+
+/* ---- Agent graph (blocco 4) ---- */
+
+.agent-graph {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-muted);
+  padding: 12px;
+}
+
+.agent-graph__toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+.agent-graph__search {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px;
+  background: var(--bg);
+  color: var(--text-h);
+  min-width: 220px;
+}
+
+.agent-graph__scroll {
+  overflow: auto;
+  max-height: 70vh;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+}
+
+.agent-graph__line {
+  stroke: var(--border);
+  stroke-width: 2;
+}
+
+.agent-graph__line--tool {
+  stroke: var(--accent);
+  stroke-dasharray: 4 4;
+  opacity: 0.6;
+}
+
+.agent-graph__edge-label {
+  font-size: 10px;
+  fill: var(--text);
+  opacity: 0.7;
+  text-anchor: middle;
+}
+
+.agent-graph__edge-label--gate {
+  fill: var(--status-warning);
+  opacity: 0.9;
+  font-weight: 600;
+}
+
+.agent-graph__node-group {
+  cursor: grab;
+}
+
+.agent-graph__node-group--dim {
+  opacity: 0.25;
+}
+
+.agent-graph__node {
+  fill: var(--bg-muted);
+  stroke: var(--border);
+  stroke-width: 1.5;
+}
+
+.agent-graph__node--selected {
+  stroke: var(--accent);
+  stroke-width: 2.5;
+}
+
+.agent-graph__node--virtual {
+  fill: var(--code-bg);
+  stroke: var(--border);
+  stroke-dasharray: 3 3;
+}
+
+.agent-graph__node-title {
+  font-size: 12px;
+  font-weight: 600;
+  fill: var(--text-h);
+}
+
+.agent-graph__node-sub {
+  font-size: 10px;
+  fill: var(--text);
+  opacity: 0.6;
+}
+
+.agent-graph__dup-btn {
+  fill: var(--bg);
+  stroke: var(--border);
+  cursor: pointer;
+}
+
+.agent-graph__dup-icon {
+  font-size: 11px;
+  fill: var(--text);
+  pointer-events: none;
+}
+
+@media (max-width: 800px) {
+  .agent-graph__scroll {
+    max-height: 50vh;
+  }
 }

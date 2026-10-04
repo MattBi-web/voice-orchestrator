@@ -3,11 +3,14 @@
 # (or via `voice-orchestrator agents add/remove`), no code changes needed.
 #
 # Each node:
-#   eligibility  — Level-1 gate expression (routing/gate.py), "" = always eligible
-#   triggers     — Level-2 keyword list (routing/classifier.py)
-#   tools        — ids resolved against tools/__init__.py's REGISTRY
-#   knowledge    — markdown files (data/knowledge/) for the knowledge_lookup tool
-#   children     — nested sub-agents (recursion all the way down)
+#   eligibility     — Level-1 gate expression (routing/gate.py), "" = always eligible
+#   triggers        — Level-2 keyword list (routing/classifier.py)
+#   tools           — ids resolved against tools/__init__.py's REGISTRY
+#   knowledge       — markdown files (data/knowledge/) for the knowledge_lookup tool
+#   first_message   — what this agent says before hearing anything (blocco 2), "" = stay silent
+#   llm_provider/llm_model/llm_temperature — per-agent LLM override, "" = inherit the call's default
+#   voice_id/voice_stability/voice_speed   — per-agent ElevenLabs voice override, "" = inherit worker.py's default
+#   children        — nested sub-agents (recursion all the way down)
 root:
   id: router
   name: "Receptionist"
@@ -16,7 +19,8 @@ root:
     You are the receptionist for Meridian Telecom's customer line. Greet
     callers briefly, understand what they need, and route them — don't try
     to solve billing, sales, or technical problems yourself.
-  tools: ["transfer_to_human"]
+  first_message: "Meridian Telecom, buongiorno! Come posso aiutarla?"
+  tools: ["transfer_to_human", "end_call"]
   children:
     - id: billing
       name: "Billing Agent"
@@ -40,11 +44,24 @@ root:
           condition: "channel == 'voice'"
         - knowledge_lookup
         - transfer_to_human
+        - end_call
       knowledge: ["billing_policy.md"]
       system_prompt: >
         You are Meridian Telecom's billing agent. Answer only from the
         account lookup and knowledge base you're given — never invent a
         figure. Be precise about amounts and dates.
+      # Lower temperature than the family default: a billing agent quoting
+      # amounts/dates should be the least improvisational voice in the
+      # family, not the most helpful-sounding one. Pinned to "fake" here on
+      # purpose, same as the family-wide default — this demo config must
+      # never silently make a real network call just because someone
+      # running the tests happens to have a real provider's API key set in
+      # their shell; swap to "anthropic"/"openai"/"gemini" to see this
+      # field actually change which model answers.
+      llm_provider: "fake"
+      llm_temperature: 0.2
+      voice_id: "21m00Tcm4TlvDq8ikWAM"  # ElevenLabs "Rachel" — calm, measured
+      voice_stability: 0.7
 
     - id: sales
       name: "Sales & Upgrades Agent"
@@ -57,12 +74,13 @@ root:
         - attiv
         - offert
         - cambiare piano
-      tools: ["knowledge_lookup", "transfer_to_human"]
+      tools: ["knowledge_lookup", "transfer_to_human", "end_call"]
       knowledge: ["plans_and_offers.md"]
       system_prompt: >
         You are Meridian Telecom's sales agent. Explain plans and offers
         accurately from the knowledge base; don't promise discounts that
         aren't in it.
+      voice_id: "EXAVITQu4vr4xnSDxMaL"  # ElevenLabs "Bella" — warmer, upbeat
 
     - id: roaming
       name: "Roaming & International Agent"
@@ -71,7 +89,7 @@ root:
         - roaming
         - estero
         - internazional
-      tools: ["mcp:demo", "transfer_to_human"]
+      tools: ["mcp:demo", "transfer_to_human", "end_call"]
       system_prompt: >
         You are Meridian Telecom's roaming agent. Use the roaming-rate or
         outage-check tool to answer with real figures; never invent a rate
@@ -86,7 +104,7 @@ root:
         - si è rotto
         - non si connette
         - guasto
-      tools: ["transfer_to_human"]
+      tools: ["transfer_to_human", "end_call"]
       system_prompt: >
         You are the Technical Support triage agent. Figure out whether this
         is an internet/connectivity issue or a TV/decoder issue and route
@@ -104,7 +122,7 @@ root:
             - banda larga
             - fibr
             - lent
-          tools: ["knowledge_lookup", "transfer_to_human"]
+          tools: ["knowledge_lookup", "transfer_to_human", "end_call"]
           knowledge: ["internet_troubleshooting.md"]
           system_prompt: >
             You are Meridian Telecom's internet troubleshooting specialist.
@@ -121,7 +139,7 @@ root:
             - set-top
             - telecomand
             - tv
-          tools: ["knowledge_lookup", "transfer_to_human"]
+          tools: ["knowledge_lookup", "transfer_to_human", "end_call"]
           knowledge: ["tv_troubleshooting.md"]
           system_prompt: >
             You are Meridian Telecom's TV/decoder troubleshooting specialist.

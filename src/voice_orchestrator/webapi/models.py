@@ -39,13 +39,26 @@ class AgentRow(Base):
     description: Mapped[str] = mapped_column(default="")
     system_prompt: Mapped[str] = mapped_column(default="")
     eligibility: Mapped[str] = mapped_column(default="")
-    voice: Mapped[str] = mapped_column(default="default")
     # Position among siblings, so the tree the UI shows has a stable,
     # editor-controlled order instead of whatever SQLite happens to return.
     position: Mapped[int] = mapped_column(default=0)
     triggers_json: Mapped[str] = mapped_column(Text, default="[]")
     tools_json: Mapped[str] = mapped_column(Text, default="[]")
     knowledge_json: Mapped[str] = mapped_column(Text, default="[]")
+    # Blocco 2 — see agents/registry.py's AgentSpec for what each means;
+    # these mirror it column-for-column, same convention as every other
+    # field above.
+    first_message: Mapped[str] = mapped_column(Text, default="")
+    llm_provider: Mapped[str] = mapped_column(default="")
+    llm_model: Mapped[str] = mapped_column(default="")
+    llm_temperature: Mapped[float | None] = mapped_column(nullable=True, default=None)
+    voice_id: Mapped[str] = mapped_column(default="")
+    voice_stability: Mapped[float | None] = mapped_column(nullable=True, default=None)
+    voice_speed: Mapped[float | None] = mapped_column(nullable=True, default=None)
+    # Blocco 4 — where the graph view put this node after a drag. None for
+    # both = let the frontend auto-layout it (a fresh/never-dragged agent).
+    layout_x: Mapped[float | None] = mapped_column(nullable=True, default=None)
+    layout_y: Mapped[float | None] = mapped_column(nullable=True, default=None)
 
     @property
     def triggers(self) -> list[str]:

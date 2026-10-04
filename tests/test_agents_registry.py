@@ -20,7 +20,7 @@ def _family() -> AgentSpec:
         triggers=[],
         tools=[],
         knowledge=[],
-        voice="default",
+        first_message="Buongiorno!",
         children=[
             AgentSpec(
                 id="billing",
@@ -31,7 +31,12 @@ def _family() -> AgentSpec:
                 triggers=["bolletta", "fattura"],
                 tools=[ToolBinding(id="knowledge_lookup"), ToolBinding(id="transfer_to_human", condition="channel == 'voice'")],
                 knowledge=["billing.md"],
-                voice="it-female-1",
+                llm_provider="anthropic",
+                llm_model="claude-haiku-4-5",
+                llm_temperature=0.2,
+                voice_id="it-female-1",
+                voice_stability=0.6,
+                voice_speed=1.1,
                 children=[],
             ),
         ],
@@ -49,9 +54,9 @@ def test_save_then_load_round_trips_every_field(tmp_path):
 
 
 def test_save_omits_default_valued_fields_for_a_clean_diff(tmp_path):
-    """save_family only writes eligibility/triggers/tools/knowledge/voice
-    when they differ from the empty/default value — so a plain agent stays a
-    short, readable YAML block instead of every optional key spelled out."""
+    """save_family only writes the optional fields when they differ from
+    their empty/default value — so a plain agent stays a short, readable
+    YAML block instead of every optional key spelled out."""
     path = tmp_path / "agents.yaml"
     plain = AgentSpec(id="router", name="Router", description="d", system_prompt="s")
 
@@ -62,7 +67,13 @@ def test_save_omits_default_valued_fields_for_a_clean_diff(tmp_path):
     assert "triggers" not in text
     assert "tools" not in text
     assert "knowledge" not in text
-    assert "voice" not in text
+    assert "first_message" not in text
+    assert "llm_provider" not in text
+    assert "llm_model" not in text
+    assert "llm_temperature" not in text
+    assert "voice_id" not in text
+    assert "voice_stability" not in text
+    assert "voice_speed" not in text
 
 
 def test_save_overwrites_an_existing_file(tmp_path):

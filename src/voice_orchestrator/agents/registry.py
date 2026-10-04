@@ -43,7 +43,30 @@ class AgentSpec:
     # Markdown knowledge files (relative to data/knowledge/) this agent can search
     # via the knowledge_lookup tool, if it has that tool.
     knowledge: list[str] = field(default_factory=list)
-    voice: str = "default"
+    # What this agent says before it has heard anything from the caller.
+    # "" = stay silent until the caller speaks first. Normally only the
+    # root/receptionist needs one — an agent reached via handoff usually
+    # just replies to whatever triggered the handoff. Wired in by
+    # voice/worker.py's entrypoint() (session.say()) and cli.py's chat().
+    first_message: str = ""
+    # Per-agent LLM override (blocco 2, roadmap). "" on provider/model means
+    # "inherit the call's own default provider" (config.PROVIDER, chosen
+    # once per call) — see llm.py's get_provider_for_agent(). None on
+    # temperature means "let the provider use its own default". Only
+    # respond() honors llm_temperature; classify() stays on the call's
+    # default provider on purpose (routing should stay cheap/deterministic,
+    # not vary per destination agent), and so does summarize() (it
+    # condenses the whole call, not one agent's turn).
+    llm_provider: str = ""
+    llm_model: str = ""
+    llm_temperature: float | None = None
+    # Per-agent ElevenLabs voice override (blocco 2, fixes D1: a `voice`
+    # field existed before but nothing ever read it). "" means "inherit
+    # whatever TTS voice/worker.py's AgentSession was built with" — see
+    # voice/agent.py's OrchestratorAgent.tts_node().
+    voice_id: str = ""
+    voice_stability: float | None = None
+    voice_speed: float | None = None
     children: list["AgentSpec"] = field(default_factory=list)
 
     def iter_subtree(self):
@@ -81,7 +104,13 @@ def _parse_node(node: dict) -> AgentSpec:
         triggers=list(node.get("triggers", [])),
         tools=[_parse_tool_binding(t) for t in node.get("tools", [])],
         knowledge=list(node.get("knowledge", [])),
-        voice=node.get("voice", "default"),
+        first_message=node.get("first_message", ""),
+        llm_provider=node.get("llm_provider", ""),
+        llm_model=node.get("llm_model", ""),
+        llm_temperature=node.get("llm_temperature"),
+        voice_id=node.get("voice_id", ""),
+        voice_stability=node.get("voice_stability"),
+        voice_speed=node.get("voice_speed"),
         children=children,
     )
 
@@ -112,8 +141,20 @@ def _node_to_dict(agent: AgentSpec) -> dict:
         ]
     if agent.knowledge:
         node["knowledge"] = agent.knowledge
-    if agent.voice != "default":
-        node["voice"] = agent.voice
+    if agent.first_message:
+        node["first_message"] = agent.first_message
+    if agent.llm_provider:
+        node["llm_provider"] = agent.llm_provider
+    if agent.llm_model:
+        node["llm_model"] = agent.llm_model
+    if agent.llm_temperature is not None:
+        node["llm_temperature"] = agent.llm_temperature
+    if agent.voice_id:
+        node["voice_id"] = agent.voice_id
+    if agent.voice_stability is not None:
+        node["voice_stability"] = agent.voice_stability
+    if agent.voice_speed is not None:
+        node["voice_speed"] = agent.voice_speed
     if agent.children:
         node["children"] = [_node_to_dict(c) for c in agent.children]
     return node

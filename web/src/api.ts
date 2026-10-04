@@ -1,6 +1,7 @@
 import type {
   Agent,
   AgentInput,
+  AgentLayoutUpdate,
   AgentUpdateInput,
   AnalysisConfig,
   CallAnalysis,
@@ -58,6 +59,11 @@ export const api = {
     }),
   deleteAgent: (id: string) =>
     request<void>(`/api/agents/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  updateAgentLayout: (id: string, layout: AgentLayoutUpdate) =>
+    request<Agent>(`/api/agents/${encodeURIComponent(id)}/layout`, {
+      method: 'PATCH',
+      body: JSON.stringify(layout),
+    }),
   listTools: () => request<{ tools: string[] }>('/api/tools'),
   testRoute: (utterance: string, startAgentId: string | null, channel: string) =>
     request<TestRouteResult>('/api/test/route', {

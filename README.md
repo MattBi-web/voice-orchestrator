@@ -128,10 +128,13 @@ don't exist at all in the zero-API-key `FakeProvider` mode this whole project de
 you commit to one real provider, swapping this for native tool_use is a contained change (one
 file); until then, every provider runs the same tool loop.
 
-Three tools ship as examples of the three kinds of thing an agent typically needs:
+Four tools ship as examples of the kinds of thing an agent typically needs:
 
 - **`transfer_to_human`** — keyword-triggered (`operatore`, `persona vera`, …), flips a session
   slot. The "escalate out of the whole system" case.
+- **`end_call`** — keyword-triggered (`basta così`, `arrivederci`, …), the built-in-tool
+  equivalent of ElevenLabs' own `end_call`. Sets `session.slots["call_ended"]`; the voice layer
+  (`voice/agent.py`) is what actually hangs up, a short while after speaking the goodbye.
 - **`check_account_status`** — keyword-triggered mock of an external API call
   (`account_tool.py`'s `_fetch_account()` is the one function you'd point at a real billing
   system). The "call out to a backend" case.
