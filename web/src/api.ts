@@ -2,6 +2,9 @@ import type {
   Agent,
   AgentInput,
   AgentUpdateInput,
+  AnalysisConfig,
+  CallAnalysis,
+  CallDetail,
   CallRecord,
   CallStats,
   McpServer,
@@ -77,4 +80,10 @@ export const api = {
     }),
   deleteMcpServer: (name: string) =>
     request<void>(`/api/mcp-servers/${encodeURIComponent(name)}`, { method: 'DELETE' }),
+  getCall: (callId: string) => request<CallDetail>(`/api/calls/${encodeURIComponent(callId)}`),
+  analyzeCall: (callId: string) =>
+    request<CallAnalysis>(`/api/calls/${encodeURIComponent(callId)}/analyze`, { method: 'POST' }),
+  getAnalysisConfig: () => request<AnalysisConfig>('/api/analysis/config'),
+  putAnalysisConfig: (cfg: AnalysisConfig) =>
+    request<AnalysisConfig>('/api/analysis/config', { method: 'PUT', body: JSON.stringify(cfg) }),
 }

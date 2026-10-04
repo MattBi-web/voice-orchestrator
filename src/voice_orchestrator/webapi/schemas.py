@@ -6,6 +6,8 @@ have to touch the data between a request body and a repository call.
 """
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 from .models import AgentRow, McpServerRow
@@ -124,3 +126,23 @@ class McpServerOut(BaseModel):
 
 def mcp_row_to_out(row: McpServerRow) -> McpServerOut:
     return McpServerOut(name=row.name, command=row.command, args=row.args)
+
+
+class CriterionSchema(BaseModel):
+    id: str
+    name: str = ""
+    prompt: str
+
+
+class DataItemSchema(BaseModel):
+    id: str
+    type: Literal["string", "boolean", "integer", "number"] = "string"
+    description: str
+
+
+class AnalysisConfigSchema(BaseModel):
+    """The whole family-wide analysis config — read and saved as one unit,
+    the way the settings form edits it."""
+
+    criteria: list[CriterionSchema] = Field(default_factory=list)
+    data_items: list[DataItemSchema] = Field(default_factory=list)

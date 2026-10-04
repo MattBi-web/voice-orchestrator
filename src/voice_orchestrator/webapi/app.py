@@ -22,12 +22,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .. import call_log
-from ..llm import FakeProvider
+from .. import analysis, call_log
+from ..llm import FakeProvider, get_provider
 from ..orchestrator import handle_turn
 from ..state import CallSession
 from ..tools import REGISTRY
-from . import mcp_repository, mcp_sync, repository, seed, voice_token
+from . import analysis_repository, mcp_repository, mcp_sync, repository, seed, voice_token
 from .db import get_session
 from .mcp_repository import McpServerInput
 from .models import AgentRow
@@ -36,6 +36,9 @@ from .schemas import (
     AgentIn,
     AgentOut,
     AgentUpdate,
+    AnalysisConfigSchema,
+    CriterionSchema,
+    DataItemSchema,
     McpServerIn,
     McpServerOut,
     TestRouteRequest,
@@ -55,6 +58,7 @@ def _startup_seed() -> None:
     try:
         seed.seed_if_empty(session)
         seed.seed_mcp_if_empty(session)
+        seed.seed_analysis_if_empty(session)
         # Always re-sync, even when nothing was just seeded: this is also
         # what makes the registry correct across a plain server restart,
         # when the DB already holds rows from a previous run.
@@ -269,19 +273,21 @@ def test_route(body: TestRouteRequest, session: Session = Depends(get_session)) 
 
 
 @app.get("/api/calls")
-def list_calls(limit: int = 200, source: str | None = None) -> dict:
-    """Newest first, straight off `call_log.jsonl` — no SQLite involved (see
-    call_log.py's docstring for why). `source` filters to one of
-    "chat"/"voice"/"route_test"; omit it for everything."""
+def list_calls(limit: int = 200, source: str | None = None, session: Session = Depends(get_session)) -> dict:
+    """Newest first, straight off `call_log.jsonl`. `source` filters to one of
+    "chat"/"voice"/"route_test"; omit it for everything. Each row carries its
+    analysis verdict (`call_successful`, null if never analyzed) but not its
+    transcript — that's what `GET /api/calls/{call_id}` is for."""
     records = call_log.read_all()
     if source:
         records = [r for r in records if r.source == source]
     records = list(reversed(records))[: max(limit, 0)]
-    return {"calls": [r.as_dict() for r in records]}
+    verdicts = analysis_repository.verdicts_by_call(session)
+    return {"calls": [{**r.summary_dict(), "call_successful": verdicts.get(r.call_id)} for r in records]}
 
 
 @app.get("/api/calls/stats")
-def call_stats(days: int = 14, include_test: bool = True) -> dict:
+def call_stats(days: int = 14, include_test: bool = True, session: Session = Depends(get_session)) -> dict:
     """Aggregates the whole call log into what the dashboard's stat tiles
     and charts need — one pass over the (small, portfolio-scale) list, no
     separate rollup table to keep in sync. `include_test=false` drops
@@ -317,6 +323,16 @@ def call_stats(days: int = 14, include_test: bool = True) -> dict:
             buckets[day] += 1
     calls_by_day = [{"date": d, "count": c} for d, c in buckets.items()]
 
+    # Only over calls that have actually been analyzed — an unanalyzed call
+    # isn't a failure, it's just not judged yet.
+    verdicts = analysis_repository.verdicts_by_call(session)
+    outcomes = {"success": 0, "failure": 0, "unknown": 0}
+    for r in records:
+        verdict = verdicts.get(r.call_id)
+        if verdict is not None:
+            outcomes[verdict] = outcomes.get(verdict, 0) + 1
+    analyzed = sum(outcomes.values())
+
     return {
         "total_calls": total_calls,
         "total_minutes": round(total_seconds / 60.0, 2),
@@ -326,7 +342,58 @@ def call_stats(days: int = 14, include_test: bool = True) -> dict:
         "tool_totals": tool_totals,
         "calls_by_source": calls_by_source,
         "calls_by_day": calls_by_day,
+        "analyzed_calls": analyzed,
+        "analysis_outcomes": outcomes,
+        "success_rate": round(outcomes["success"] / analyzed, 3) if analyzed else None,
     }
+
+
+@app.get("/api/calls/{call_id}")
+def get_call(call_id: str, session: Session = Depends(get_session)) -> dict:
+    """One call with its full transcript (routing/tools per turn) and its
+    latest analysis, if any."""
+    record = call_log.find(call_id)
+    if record is None:
+        raise HTTPException(404, f"No call with id={call_id!r}")
+    row = analysis_repository.get_analysis(session, call_id)
+    return {**record.as_dict(), "analysis": analysis_repository.analysis_out(row) if row else None}
+
+
+@app.post("/api/calls/{call_id}/analyze")
+def analyze_call(call_id: str, session: Session = Depends(get_session)) -> dict:
+    """Judges the call against the current criteria and stores the result,
+    replacing any earlier analysis of it. Uses the configured provider
+    (VOICE_ORCH_PROVIDER): a real LLM if one is set up, otherwise
+    analysis.py's labelled heuristic."""
+    record = call_log.find(call_id)
+    if record is None:
+        raise HTTPException(404, f"No call with id={call_id!r}")
+    criteria, items = analysis_repository.get_config(session)
+    result = analysis.analyze(record.turns, criteria, items, get_provider())
+    row = analysis_repository.save_analysis(session, call_id, result)
+    return analysis_repository.analysis_out(row)
+
+
+@app.get("/api/analysis/config", response_model=AnalysisConfigSchema)
+def get_analysis_config(session: Session = Depends(get_session)) -> AnalysisConfigSchema:
+    criteria, items = analysis_repository.get_config(session)
+    return AnalysisConfigSchema(
+        criteria=[CriterionSchema(id=c.id, name=c.name, prompt=c.prompt) for c in criteria],
+        data_items=[DataItemSchema(id=d.id, type=d.type, description=d.description) for d in items],
+    )
+
+
+@app.put("/api/analysis/config", response_model=AnalysisConfigSchema)
+def put_analysis_config(body: AnalysisConfigSchema, session: Session = Depends(get_session)) -> AnalysisConfigSchema:
+    try:
+        analysis_repository.replace_config(
+            session,
+            [analysis.EvaluationCriterion(id=c.id.strip(), name=c.name.strip() or c.id.strip(), prompt=c.prompt) for c in body.criteria],
+            [analysis.DataCollectionItem(id=d.id.strip(), type=d.type, description=d.description) for d in body.data_items],
+        )
+    except analysis_repository.InvalidAnalysisConfig as exc:
+        raise HTTPException(400, str(exc))
+    return get_analysis_config(session)
 
 
 def _path_to(root, target_id: str) -> list:

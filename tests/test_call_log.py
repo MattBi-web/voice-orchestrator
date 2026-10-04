@@ -4,6 +4,7 @@ dependencies, exactly the promise its module docstring makes.
 """
 from __future__ import annotations
 
+import json
 from datetime import datetime, timedelta, timezone
 
 from voice_orchestrator import call_log, observability
@@ -98,3 +99,59 @@ def test_read_all_skips_a_corrupt_line_instead_of_crashing(tmp_path):
     back = call_log.read_all(path=path)
     assert len(back) == 1
     assert back[0].call_id == good.call_id
+
+
+def test_transcript_attaches_routing_handoff_and_tools_from_a_real_call():
+    """End to end through the real orchestrator (FakeProvider, the bundled
+    agents.yaml): the transcript must say *why* each turn went where it did,
+    not just what was said."""
+    from voice_orchestrator import config
+    from voice_orchestrator.agents.registry import load_family
+    from voice_orchestrator.llm import FakeProvider
+    from voice_orchestrator.orchestrator import handle_turn
+
+    root = load_family(config.AGENTS_FILE)
+    session = CallSession(call_id="t-transcript", channel="voice")
+    handle_turn(session, root, "quanto costa il roaming dati in Francia?", FakeProvider())
+    handle_turn(session, root, "grazie", FakeProvider())
+
+    record = call_log.from_session(session, source="chat", started_at=datetime.now(timezone.utc))
+    turns = record.turns
+
+    assert [t["speaker"] for t in turns] == ["caller", "agent", "caller", "agent"]
+    first_caller, first_agent, second_caller, second_agent = turns
+    assert first_caller["routing"]["chosen_agent"] == "roaming"
+    assert first_caller["routing"]["resolved_by"] in ("gate_only", "pattern", "llm_fallback")
+    assert first_caller["handoff"] == {"from_agent": "router", "to_agent": "roaming"}
+    assert first_agent["agent_id"] == "roaming"
+    assert first_agent["tools"] == ["mcp:demo"]
+    # Second turn: routing recorded again, no new handoff, and the tool from
+    # turn 1 must not leak into turn 2's reply.
+    assert "routing" in second_caller
+    assert "handoff" not in second_caller
+    assert "mcp:demo" not in second_agent["tools"]
+
+
+def test_a_line_written_before_transcripts_existed_still_loads(tmp_path):
+    path = tmp_path / "call_log.jsonl"
+    legacy = {
+        "call_id": "old", "source": "chat", "channel": "voice", "started_at": "2026-09-01T10:00:00+00:00",
+        "ended_at": "2026-09-01T10:01:00+00:00", "duration_seconds": 60.0, "turn_count": 2,
+        "final_agent_id": "billing", "resolved_by_counts": {}, "tool_counts": {}, "handoffs": 0,
+    }
+    path.write_text(json.dumps(legacy) + "\n", encoding="utf-8")
+
+    back = call_log.read_all(path=path)
+    assert back[0].call_id == "old"
+    assert back[0].turns == []
+
+
+def test_find_and_summary_dict(tmp_path):
+    path = tmp_path / "call_log.jsonl"
+    record = call_log.from_session(_session_with_a_turn(), source="chat", started_at=datetime.now(timezone.utc))
+    call_log.append(record, path=path)
+
+    found = call_log.find("t1", path=path)
+    assert found is not None and len(found.turns) == 2
+    assert "turns" not in found.summary_dict()
+    assert call_log.find("nope", path=path) is None

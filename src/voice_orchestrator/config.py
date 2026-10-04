@@ -1,6 +1,15 @@
 import os
 from pathlib import Path
 
+
+def _env_float(name: str, default: float) -> float:
+    """An env var that's set but empty (a `.env` line like `NAME=` sourced
+    with `set -a`) counts as unset — `os.environ.get(name, default)` alone
+    returns "" in that case and `float("")` crashes the whole import."""
+    raw = os.environ.get(name, "").strip()
+    return float(raw) if raw else default
+
+
 ROOT = Path(__file__).resolve().parents[2]
 AGENTS_FILE = Path(os.environ.get("VOICE_ORCH_AGENTS_FILE", ROOT / "config" / "agents.yaml"))
 KNOWLEDGE_DIR = Path(os.environ.get("VOICE_ORCH_KNOWLEDGE_DIR", ROOT / "data" / "knowledge"))
@@ -21,7 +30,7 @@ PROVIDER = os.environ.get("VOICE_ORCH_PROVIDER", "fake")
 # instead of trusting a provider dashboard's after-the-fact email warning.
 # 60 min/day is a deliberately small default for a portfolio demo, not a
 # production sizing — raise it with this env var once you trust the setup.
-MAX_CALL_MINUTES_PER_DAY = float(os.environ.get("VOICE_ORCH_MAX_CALL_MINUTES_PER_DAY", "60"))
+MAX_CALL_MINUTES_PER_DAY = _env_float("VOICE_ORCH_MAX_CALL_MINUTES_PER_DAY", 60.0)
 USAGE_FILE = Path(os.environ.get("VOICE_ORCH_USAGE_FILE", ROOT / "data" / "usage_log.json"))
 
 # The web agent-builder's own store (webapi/). Deliberately separate from

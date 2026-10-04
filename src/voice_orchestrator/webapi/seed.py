@@ -17,8 +17,18 @@ from sqlalchemy.orm import Session
 
 from .. import config
 from ..agents.registry import AgentSpec, load_family
+from ..analysis import DEFAULT_CRITERIA, DEFAULT_DATA_ITEMS
 from ..tools.mcp_tool import read_raw_server_entries
-from .models import AgentRow, McpServerRow
+from .models import AgentRow, AppMetaRow, DataCollectionItemRow, EvaluationCriterionRow, McpServerRow
+
+
+def _already_seeded(session: Session, key: str) -> bool:
+    return session.get(AppMetaRow, key) is not None
+
+
+def _mark_seeded(session: Session, key: str) -> None:
+    if session.get(AppMetaRow, key) is None:
+        session.add(AppMetaRow(key=key, value="1"))
 
 
 def _insert_subtree(session: Session, node: AgentSpec, parent_id: str | None, position: int) -> None:
@@ -69,11 +79,32 @@ def seed_mcp_if_empty(session: Session, yaml_path: Path | None = None) -> bool:
     mcp_repository.row_to_config for where that substitution actually
     happens, applied fresh every time a row becomes a real MCPServerConfig."""
     already_has_rows = session.scalar(select(McpServerRow.name).limit(1)) is not None
-    if already_has_rows:
+    if already_has_rows or _already_seeded(session, "mcp_servers_seeded"):
+        # The flag is what keeps "I deleted every server on purpose" from
+        # being undone by the next restart; a pre-flag DB that already has
+        # rows just gets the flag set now.
+        _mark_seeded(session, "mcp_servers_seeded")
+        session.commit()
         return False
     for entry in read_raw_server_entries(yaml_path or config.MCP_SERVERS_FILE):
         row = McpServerRow(name=entry["name"], command=entry["command"])
         row.args = list(entry.get("args", []))
         session.add(row)
+    _mark_seeded(session, "mcp_servers_seeded")
+    session.commit()
+    return True
+
+
+def seed_analysis_if_empty(session: Session) -> bool:
+    """Default criteria and data-collection fields (analysis.DEFAULT_*), seeded
+    once. No YAML twin this time: nothing outside the web API reads these, so
+    there's no second source of truth to keep in step."""
+    if _already_seeded(session, "analysis_config_seeded"):
+        return False
+    for i, c in enumerate(DEFAULT_CRITERIA):
+        session.add(EvaluationCriterionRow(id=c.id, name=c.name, prompt=c.prompt, position=i))
+    for i, d in enumerate(DEFAULT_DATA_ITEMS):
+        session.add(DataCollectionItemRow(id=d.id, type=d.type, description=d.description, position=i))
+    _mark_seeded(session, "analysis_config_seeded")
     session.commit()
     return True

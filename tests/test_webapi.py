@@ -21,6 +21,10 @@ def client(tmp_path, monkeypatch):
     # nothing here should touch a developer's real data/call_log.jsonl, and
     # tests must not see each other's logged calls.
     monkeypatch.setattr(config, "CALL_LOG_FILE", tmp_path / "test_call_log.jsonl")
+    # Post-call analysis uses the configured provider; pin it to the
+    # zero-key FakeProvider so a developer's own VOICE_ORCH_PROVIDER can't
+    # turn this suite into real (billed) LLM calls.
+    monkeypatch.setattr(config, "PROVIDER", "fake")
     with TestClient(app) as c:
         yield c
 
@@ -288,3 +292,103 @@ def test_voice_token_with_credentials_mints_a_room_scoped_jwt(client, monkeypatc
     assert payload["video"]["room"] == body["room"]
     assert payload["video"]["roomJoin"] is True
     assert payload["sub"] == body["identity"]
+
+
+# ---- conversations + post-call analysis ----
+
+
+def _one_call(client, utterance="voglio parlare con un operatore", start="tech_internet") -> str:
+    client.post("/api/test/route", json={"utterance": utterance, "start_agent_id": start})
+    return client.get("/api/calls").json()["calls"][0]["call_id"]
+
+
+def test_call_detail_has_the_transcript_with_routing_and_tools(client):
+    call_id = _one_call(client)
+    detail = client.get(f"/api/calls/{call_id}").json()
+
+    assert [t["speaker"] for t in detail["turns"]] == ["caller", "agent"]
+    assert detail["turns"][0]["routing"]["chosen_agent"] == "tech_internet"
+    assert "transfer_to_human" in detail["turns"][1]["tools"]
+    assert detail["analysis"] is None
+
+
+def test_call_list_omits_transcripts_but_carries_the_verdict(client):
+    _one_call(client)
+    row = client.get("/api/calls").json()["calls"][0]
+    assert "turns" not in row
+    assert row["call_successful"] is None
+
+
+def test_unknown_call_is_404_for_detail_and_analyze(client):
+    assert client.get("/api/calls/nope").status_code == 404
+    assert client.post("/api/calls/nope/analyze").status_code == 404
+
+
+def test_analysis_config_is_seeded_with_defaults(client):
+    config_body = client.get("/api/analysis/config").json()
+    assert [c["id"] for c in config_body["criteria"]] == ["richiesta_risolta", "agente_corretto"]
+    assert {d["id"] for d in config_body["data_items"]} == {"motivo_chiamata", "richiesta_operatore"}
+
+
+def test_analyze_stores_result_and_feeds_list_and_stats(client):
+    call_id = _one_call(client)
+    result = client.post(f"/api/calls/{call_id}/analyze").json()
+
+    assert result["method"] == "heuristic"  # no API key in tests
+    assert result["call_successful"] in ("success", "failure", "unknown")
+    assert {c["criterion_id"] for c in result["criteria"]} == {"richiesta_risolta", "agente_corretto"}
+    data = {d["item_id"]: d["value"] for d in result["data"]}
+    assert data["richiesta_operatore"] is True  # "voglio parlare con un operatore"
+
+    detail = client.get(f"/api/calls/{call_id}").json()
+    assert detail["analysis"]["call_successful"] == result["call_successful"]
+    assert detail["analysis"]["analyzed_at"]
+
+    row = client.get("/api/calls").json()["calls"][0]
+    assert row["call_successful"] == result["call_successful"]
+
+    stats = client.get("/api/calls/stats").json()
+    assert stats["analyzed_calls"] == 1
+    assert sum(stats["analysis_outcomes"].values()) == 1
+
+
+def test_stats_success_rate_is_null_until_something_is_analyzed(client):
+    _one_call(client)
+    stats = client.get("/api/calls/stats").json()
+    assert stats["analyzed_calls"] == 0
+    assert stats["success_rate"] is None
+
+
+def test_put_analysis_config_replaces_and_reanalysis_uses_it(client):
+    r = client.put(
+        "/api/analysis/config",
+        json={
+            "criteria": [{"id": "operatore", "name": "Operatore", "prompt": "Il chiamante chiede di parlare con un operatore."}],
+            "data_items": [{"id": "importo", "type": "number", "description": "importo citato"}],
+        },
+    )
+    assert r.status_code == 200
+    assert [c["id"] for c in r.json()["criteria"]] == ["operatore"]
+
+    call_id = _one_call(client)
+    result = client.post(f"/api/calls/{call_id}/analyze").json()
+    assert [c["criterion_id"] for c in result["criteria"]] == ["operatore"]
+    assert [d["item_id"] for d in result["data"]] == ["importo"]
+
+
+def test_put_analysis_config_rejects_duplicates_and_bad_ids(client):
+    dup = {"criteria": [{"id": "a", "prompt": "x"}, {"id": "a", "prompt": "y"}], "data_items": []}
+    assert client.put("/api/analysis/config", json=dup).status_code == 400
+    bad = {"criteria": [{"id": "con spazi", "prompt": "x"}], "data_items": []}
+    assert client.put("/api/analysis/config", json=bad).status_code == 400
+    bad_type = {"criteria": [], "data_items": [{"id": "x", "type": "date", "description": "d"}]}
+    assert client.put("/api/analysis/config", json=bad_type).status_code == 422
+
+
+def test_emptying_the_config_survives_a_restart(client):
+    """The seed flag: deleting every criterion on purpose must not be undone
+    by the next startup's seed-if-empty."""
+    client.put("/api/analysis/config", json={"criteria": [], "data_items": []})
+    with TestClient(app) as again:  # same DB file, fresh lifespan = a restart
+        body = again.get("/api/analysis/config").json()
+    assert body == {"criteria": [], "data_items": []}

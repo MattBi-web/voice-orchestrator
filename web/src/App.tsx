@@ -8,6 +8,7 @@ import { TestBox } from './components/TestBox'
 import { VoiceTestConsole } from './components/VoiceTestConsole'
 import { Dashboard } from './components/Dashboard'
 import { McpServersPanel } from './components/McpServersPanel'
+import { Conversations } from './components/Conversations'
 import './App.css'
 
 type Selection =
@@ -15,10 +16,11 @@ type Selection =
   | { kind: 'edit'; agentId: string }
   | { kind: 'create'; parentId: string }
 
-type View = 'builder' | 'voice' | 'dashboard'
+type View = 'builder' | 'voice' | 'dashboard' | 'conversations'
 
 function App() {
   const [view, setView] = useState<View>('builder')
+  const [selectedCallId, setSelectedCallId] = useState<string | null>(null)
   const [root, setRoot] = useState<Agent | null>(null)
   const [tools, setTools] = useState<string[]>([])
   const [selection, setSelection] = useState<Selection>({ kind: 'none' })
@@ -87,6 +89,13 @@ function App() {
           >
             Dashboard
           </button>
+          <button
+            type="button"
+            className={view === 'conversations' ? 'app__tab app__tab--active' : 'app__tab'}
+            onClick={() => setView('conversations')}
+          >
+            Conversazioni
+          </button>
         </nav>
       </header>
 
@@ -95,7 +104,14 @@ function App() {
       {view === 'voice' ? (
         <VoiceTestConsole />
       ) : view === 'dashboard' ? (
-        <Dashboard />
+        <Dashboard
+          onOpenCall={(callId) => {
+            setSelectedCallId(callId)
+            setView('conversations')
+          }}
+        />
+      ) : view === 'conversations' ? (
+        <Conversations selectedCallId={selectedCallId} onSelectCall={setSelectedCallId} />
       ) : loading ? (
         <p>Loading…</p>
       ) : (

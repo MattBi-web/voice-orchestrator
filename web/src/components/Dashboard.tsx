@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import type { CallRecord, CallStats } from '../types'
 import { api, ApiError } from '../api'
+import { VerdictChip } from './VerdictChip'
 
 // This project's single-series bar charts all carry one measure broken out
 // by a nominal category (day, routing level, tool, or source) — per the
@@ -54,7 +55,7 @@ function MiniBarChart({
   }
   return (
     <ResponsiveContainer width="100%" height={height}>
-      <BarChart data={data} margin={{ top: 4, right: 8, left: -16, bottom: 0 }}>
+      <BarChart data={data} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
         <CartesianGrid vertical={false} stroke={palette.grid} />
         <XAxis
           dataKey={xKey}
@@ -73,7 +74,7 @@ function MiniBarChart({
   )
 }
 
-export function Dashboard() {
+export function Dashboard({ onOpenCall }: { onOpenCall: (callId: string) => void }) {
   const palette = useChartPalette()
   const [stats, setStats] = useState<CallStats | null>(null)
   const [calls, setCalls] = useState<CallRecord[]>([])
@@ -137,6 +138,10 @@ export function Dashboard() {
             <StatTile label="Minuti totali" value={(stats?.total_minutes ?? 0).toFixed(1)} />
             <StatTile label="Durata media (s)" value={(stats?.avg_duration_seconds ?? 0).toFixed(1)} />
             <StatTile label="Handoff rate" value={`${((stats?.handoff_rate ?? 0) * 100).toFixed(0)}%`} />
+            <StatTile
+              label={`Successo (su ${stats?.analyzed_calls ?? 0} analizzate)`}
+              value={stats?.success_rate == null ? '—' : `${(stats.success_rate * 100).toFixed(0)}%`}
+            />
           </div>
 
           <div className="dashboard__charts">
@@ -154,7 +159,7 @@ export function Dashboard() {
             </div>
           </div>
 
-          <h3 className="dashboard__table-title">Chiamate recenti</h3>
+          <h3 className="dashboard__table-title">Chiamate recenti · clicca una riga per trascrizione e analisi</h3>
           <div className="dashboard__table-wrap">
             <table className="dashboard__table">
               <thead>
@@ -165,11 +170,12 @@ export function Dashboard() {
                   <th>Agente finale</th>
                   <th>Durata</th>
                   <th>Handoff</th>
+                  <th>Esito</th>
                 </tr>
               </thead>
               <tbody>
                 {calls.map((c) => (
-                  <tr key={c.call_id}>
+                  <tr key={c.call_id} className="dashboard__row-link" onClick={() => onOpenCall(c.call_id)}>
                     <td>{new Date(c.started_at).toLocaleString('it-IT')}</td>
                     <td>
                       <span className={`dashboard__badge dashboard__badge--${c.source}`}>{c.source}</span>
@@ -178,11 +184,14 @@ export function Dashboard() {
                     <td>{c.final_agent_id ?? '—'}</td>
                     <td>{c.duration_seconds.toFixed(1)}s</td>
                     <td>{c.handoffs}</td>
+                    <td>
+                      <VerdictChip verdict={c.call_successful} />
+                    </td>
                   </tr>
                 ))}
                 {calls.length === 0 && (
                   <tr>
-                    <td colSpan={6} className="dashboard__empty">
+                    <td colSpan={7} className="dashboard__empty">
                       Nessuna chiamata da mostrare.
                     </td>
                   </tr>

@@ -81,6 +81,8 @@ export interface CallRecord {
   resolved_by_counts: Record<string, number>
   tool_counts: Record<string, number>
   handoffs: number
+  // Latest analysis verdict, null if the call was never analyzed (list view only).
+  call_successful?: Verdict | null
 }
 
 export interface CallDayCount {
@@ -97,6 +99,9 @@ export interface CallStats {
   tool_totals: Record<string, number>
   calls_by_source: Record<string, number>
   calls_by_day: CallDayCount[]
+  analyzed_calls: number
+  analysis_outcomes: Record<Verdict, number>
+  success_rate: number | null
 }
 
 // Mirrors McpServerIn/McpServerOut in schemas.py.
@@ -104,4 +109,73 @@ export interface McpServer {
   name: string
   command: string
   args: string[]
+}
+
+// ---- Conversations + post-call analysis (call_log.transcript_from_session,
+// analysis.AnalysisResult, webapi/analysis_repository.py) ----
+
+export type Verdict = 'success' | 'failure' | 'unknown'
+
+export interface RoutingInfo {
+  resolved_by: string
+  chosen_agent: string | null
+  eligible_agents: string[]
+  latency_ms: number
+  reason: string
+}
+
+export interface TranscriptTurn {
+  speaker: 'caller' | 'agent'
+  text: string
+  agent_id: string | null
+  timestamp: string
+  routing?: RoutingInfo
+  handoff?: { from_agent: string; to_agent: string }
+  tools?: string[]
+}
+
+export interface CriterionResult {
+  criterion_id: string
+  result: Verdict
+  rationale: string
+}
+
+export interface DataCollectionResult {
+  item_id: string
+  value: string | number | boolean | null
+  rationale: string
+}
+
+export interface CallAnalysis {
+  method: 'heuristic' | 'llm'
+  provider: string
+  summary: string
+  criteria: CriterionResult[]
+  data: DataCollectionResult[]
+  call_successful: Verdict
+  analyzed_at: string
+}
+
+export interface CallDetail extends CallRecord {
+  turns: TranscriptTurn[]
+  analysis: CallAnalysis | null
+}
+
+export type DataItemType = 'string' | 'boolean' | 'integer' | 'number'
+
+export interface Criterion {
+  id: string
+  name: string
+  prompt: string
+}
+
+export interface DataItem {
+  id: string
+  type: DataItemType
+  description: string
+}
+
+export interface AnalysisConfig {
+  criteria: Criterion[]
+  data_items: DataItem[]
 }

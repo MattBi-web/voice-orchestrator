@@ -95,3 +95,53 @@ class McpServerRow(Base):
     @args.setter
     def args(self, value: list[str]) -> None:
         self.args_json = json.dumps(list(value))
+
+
+class AppMetaRow(Base):
+    """Tiny key/value table for one-off flags — today only "this seed already
+    ran", so emptying a table on purpose (deleting every criterion, say)
+    isn't silently undone by the next startup's seed-if-empty check."""
+
+    __tablename__ = "app_meta"
+
+    key: Mapped[str] = mapped_column(primary_key=True)
+    value: Mapped[str] = mapped_column(default="")
+
+
+class EvaluationCriterionRow(Base):
+    """One success criterion (analysis.EvaluationCriterion). Family-wide, not
+    per agent: a call crosses several agents, and it's the whole call that
+    gets judged — see docs/ROADMAP.md's decision log."""
+
+    __tablename__ = "evaluation_criteria"
+
+    id: Mapped[str] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(default="")
+    prompt: Mapped[str] = mapped_column(Text, default="")
+    position: Mapped[int] = mapped_column(default=0)
+
+
+class DataCollectionItemRow(Base):
+    """One field to extract from every analyzed call (analysis.DataCollectionItem)."""
+
+    __tablename__ = "data_collection_items"
+
+    id: Mapped[str] = mapped_column(primary_key=True)
+    type: Mapped[str] = mapped_column(default="string")
+    description: Mapped[str] = mapped_column(Text, default="")
+    position: Mapped[int] = mapped_column(default=0)
+
+
+class CallAnalysisRow(Base):
+    """The latest analysis of one call. The transcript itself stays in the
+    core's call_log.jsonl (keyed by the same call_id); only the web API's own
+    judgement of it lives here, since criteria are a web-API concept too."""
+
+    __tablename__ = "call_analyses"
+
+    call_id: Mapped[str] = mapped_column(primary_key=True)
+    analyzed_at: Mapped[str] = mapped_column(default="")
+    method: Mapped[str] = mapped_column(default="")
+    provider: Mapped[str] = mapped_column(default="")
+    call_successful: Mapped[str] = mapped_column(default="unknown")
+    result_json: Mapped[str] = mapped_column(Text, default="{}")

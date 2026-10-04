@@ -336,7 +336,7 @@ Open `http://localhost:5173`. The Vite dev server proxies `/api/*` to `localhost
 (`web/vite.config.ts`), so there's no CORS fiddling in dev. The "Agent builder" tab is the agent
 tree (click to edit, `+` to add a child under any node) plus the edit/create form, the
 text-based "try it" box (wired to `POST /api/test/route`), and the "Server MCP" panel below (see
-next). `tests/test_webapi.py` (28 tests, `TestClient` against a temp SQLite file) covers the full
+next). `tests/test_webapi.py` (37 tests, `TestClient` against a temp SQLite file) covers the full
 CRUD surface, the auto-seed-once behavior, both the happy and error paths (duplicate id, missing
 parent, delete-the-root, delete-with-children), the MCP-server endpoints below, and the
 voice-token endpoints below.
@@ -402,6 +402,25 @@ That's acceptable only under the threat model this backend already documents for
 dev only, CORS locked to the Vite dev server's own origin, no authentication — and the panel says
 so in the UI itself, not just here. Don't expose this API past localhost without adding real auth
 first.
+
+**"Conversazioni" tab — transcripts, per-turn routing, post-call analysis.** Every logged call now
+carries its full transcript (`call_log.transcript_from_session()`), and each turn says *why* it went
+where it did: the caller's turn carries its routing decision (level, candidates, latency, reason, and
+any handoff), the agent's reply carries the tools that grounded it. No new bookkeeping in the
+orchestrator was needed for this — `route()` already records exactly one `RoutingEvent` per turn, and
+handoff/tool events are bucketed into each exchange by timestamp. The tab lists calls, opens one as a
+chat-style transcript with that trace under every turn, and runs post-call analysis on it — the
+equivalent of ElevenLabs' `evaluation.criteria` + `data_collection`. Criteria and data fields are
+edited in the same tab and apply to the whole family, not one agent: a call crosses several agents,
+and it's the call that gets judged. `analysis.py` (core, standard library only) does the judging: with
+a real provider configured it's one LLM call asked for strict JSON, parsed defensively (a garbage reply
+is reported as a failed analysis, not silently replaced); with the zero-key `FakeProvider` it's a
+word-overlap heuristic that states in every rationale exactly what it matched, and the UI labels it
+"euristica, non un giudizio LLM". That heuristic exists so the pipeline runs without keys — its
+verdicts are not an evaluation, and the README says so here too. Results are stored per call in
+SQLite (`webapi/analysis_repository.py`) and feed a success-rate tile on the dashboard, computed only
+over calls that were actually analyzed. The working roadmap and gap map against ElevenLabs live in
+[`docs/ROADMAP.md`](docs/ROADMAP.md).
 
 **Deliberately not here (yet):** phone-number provisioning and multi-tenant auth/billing. Neither
 is what differentiates this project (the routing thesis and the clean core do that); they're the

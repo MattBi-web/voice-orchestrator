@@ -19,6 +19,12 @@ read back (`data/call_log.jsonl` is expected to stay small — a portfolio
 demo's worth of test calls, not production call volume). If this ever needs
 to hold more than a few thousand calls, this is the place to swap for
 something with an index, not a reason to distrust the abstraction today.
+
+Each record also carries the full transcript (`turns`), with the routing
+decision attached to every caller turn and the tools that fired attached to
+every agent reply — the per-turn "why did it go there" view the
+conversation detail page shows, and what `analysis.py` judges. Lines written
+before `turns` existed simply load with an empty transcript.
 """
 from __future__ import annotations
 
@@ -29,7 +35,7 @@ from pathlib import Path
 from typing import Any
 
 from . import config
-from .observability import COMPONENT_TOOL, EVENT_TOOL_TRIGGERED
+from .observability import COMPONENT_AGENT, COMPONENT_TOOL, EVENT_HANDOFF, EVENT_TOOL_TRIGGERED
 from .state import CallSession
 
 
@@ -46,9 +52,77 @@ class CallRecord:
     resolved_by_counts: dict[str, int] = field(default_factory=dict)
     tool_counts: dict[str, int] = field(default_factory=dict)
     handoffs: int = 0
+    # [{"speaker", "text", "agent_id", "timestamp", "routing"?, "handoff"?, "tools"?}]
+    # — see transcript_from_session(). Default [] keeps pre-transcript lines loadable.
+    turns: list[dict[str, Any]] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+    def summary_dict(self) -> dict[str, Any]:
+        """Everything but the transcript — what list views need, without
+        shipping every call's full text just to render a table row."""
+        data = self.as_dict()
+        data.pop("turns", None)
+        return data
+
+
+def transcript_from_session(session: CallSession) -> list[dict[str, Any]]:
+    """`full_log` turned into a JSON-friendly transcript, with each exchange's
+    context attached where a reader would look for it:
+
+    - caller turn  → `routing` (the RoutingEvent for that utterance) and
+      `handoff` (if routing moved the call to another agent);
+    - agent turn   → `tools` (ids of the tools that fired to ground that reply).
+
+    The pairing needs no new bookkeeping in the orchestrator: `route()`
+    records exactly one RoutingEvent per `handle_turn()` (every exit path
+    goes through `router._record`), so the i-th caller turn pairs with
+    `routing_log[i]`; handoff/tool events are bucketed by time into the
+    window between a caller turn and the next one."""
+    caller_turns = [t for t in session.full_log if t.speaker == "caller"]
+    caller_windows: list[tuple[datetime, datetime | None]] = []
+    for i, turn in enumerate(caller_turns):
+        start = datetime.fromisoformat(turn.timestamp)
+        end = datetime.fromisoformat(caller_turns[i + 1].timestamp) if i + 1 < len(caller_turns) else None
+        caller_windows.append((start, end))
+
+    def _events_in(window: tuple[datetime, datetime | None], component: str, event: str) -> list[dict[str, Any]]:
+        start, end = window
+        return [
+            e.attributes
+            for e in session.event_log
+            if e.component == component and e.event == event and e.occurred_at >= start and (end is None or e.occurred_at < end)
+        ]
+
+    out: list[dict[str, Any]] = []
+    caller_index = -1
+    for turn in session.full_log:
+        entry: dict[str, Any] = {
+            "speaker": turn.speaker,
+            "text": turn.text,
+            "agent_id": turn.agent_id,
+            "timestamp": turn.timestamp,
+        }
+        if turn.speaker == "caller":
+            caller_index += 1
+            if caller_index < len(session.routing_log):
+                r = session.routing_log[caller_index]
+                entry["routing"] = {
+                    "resolved_by": r.resolved_by,
+                    "chosen_agent": r.chosen_agent,
+                    "eligible_agents": list(r.eligible_agents),
+                    "latency_ms": round(r.latency_ms, 3),
+                    "reason": r.reason,
+                }
+            handoffs = _events_in(caller_windows[caller_index], COMPONENT_AGENT, EVENT_HANDOFF)
+            if handoffs:
+                entry["handoff"] = {"from_agent": handoffs[0].get("from_agent"), "to_agent": handoffs[0].get("to_agent")}
+        elif caller_index >= 0:
+            tools = _events_in(caller_windows[caller_index], COMPONENT_TOOL, EVENT_TOOL_TRIGGERED)
+            entry["tools"] = [str(t.get("tool_id", "?")) for t in tools]
+        out.append(entry)
+    return out
 
 
 def _tool_counts(session: CallSession) -> dict[str, int]:
@@ -83,6 +157,7 @@ def from_session(
         resolved_by_counts=session.routing_stats(),
         tool_counts=_tool_counts(session),
         handoffs=len(session.handoff_log),
+        turns=transcript_from_session(session),
     )
 
 
@@ -114,3 +189,12 @@ def read_all(path: Path | None = None) -> list[CallRecord]:
         except (json.JSONDecodeError, TypeError):
             continue
     return records
+
+
+def find(call_id: str, path: Path | None = None) -> CallRecord | None:
+    """The most recent record with this id (ids are unique per call in
+    practice; "most recent" just makes a duplicate harmless)."""
+    for record in reversed(read_all(path)):
+        if record.call_id == call_id:
+            return record
+    return None

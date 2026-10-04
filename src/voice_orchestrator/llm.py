@@ -55,6 +55,14 @@ class LLMProvider(ABC):
     @abstractmethod
     def summarize(self, previous_summary: str, turns: list[Turn]) -> str: ...
 
+    def complete(self, system: str, user: str, max_tokens: int = 800) -> str:
+        """A plain system+user completion — used by `analysis.py` for post-call
+        evaluation, which needs free-form JSON rather than one of the three
+        call-path capabilities above. Deliberately not abstract: the call path
+        never needs it, so a provider that can't do it (FakeProvider) just
+        doesn't override it, and `analysis.py` falls back to its heuristic."""
+        raise NotImplementedError(f"{type(self).__name__} has no free-form completion")
+
 
 def _format_turns(turns: list[Turn]) -> str:
     return "\n".join(f"{t.speaker}: {t.text}" for t in turns)
@@ -114,6 +122,9 @@ class AnthropicProvider(LLMProvider):
         )
         return "".join(b.text for b in response.content if b.type == "text").strip()
 
+    def complete(self, system: str, user: str, max_tokens: int = 800) -> str:
+        return self._complete(system, user, max_tokens=max_tokens)
+
     def classify(
         self, utterance: str, candidates: list[AgentSpec], current_agent_id: str, session: CallSession
     ) -> str:
@@ -165,6 +176,9 @@ class OpenAIProvider(LLMProvider):
         )
         return (response.choices[0].message.content or "").strip()
 
+    def complete(self, system: str, user: str, max_tokens: int = 800) -> str:
+        return self._complete(system, user, max_tokens=max_tokens)
+
     def classify(
         self, utterance: str, candidates: list[AgentSpec], current_agent_id: str, session: CallSession
     ) -> str:
@@ -201,6 +215,9 @@ class GeminiProvider(LLMProvider):
 
     def _complete(self, prompt: str) -> str:
         return self._model.generate_content(prompt).text.strip()
+
+    def complete(self, system: str, user: str, max_tokens: int = 800) -> str:
+        return self._complete(f"{system}\n\n{user}")
 
     def classify(
         self, utterance: str, candidates: list[AgentSpec], current_agent_id: str, session: CallSession
