@@ -179,3 +179,8 @@ export interface AnalysisConfig {
   criteria: Criterion[]
   data_items: DataItem[]
 }
+
+export interface ExportResult {
+  path: string
+  agent_count: number
+}

@@ -7,6 +7,7 @@ import type {
   CallDetail,
   CallRecord,
   CallStats,
+  ExportResult,
   McpServer,
   TestRouteResult,
   VoiceStatus,
@@ -46,6 +47,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   getTree: () => request<{ root: Agent | null }>('/api/agents'),
+  exportAgents: () => request<ExportResult>('/api/agents/export', { method: 'POST' }),
   getAgent: (id: string) => request<Agent>(`/api/agents/${encodeURIComponent(id)}`),
   createAgent: (data: AgentInput) =>
     request<Agent>('/api/agents', { method: 'POST', body: JSON.stringify(data) }),

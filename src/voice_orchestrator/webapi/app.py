@@ -22,7 +22,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .. import analysis, call_log
+from .. import analysis, call_log, config
+from ..agents.registry import save_family
 from ..llm import FakeProvider, get_provider
 from ..orchestrator import handle_turn
 from ..state import CallSession
@@ -235,6 +236,33 @@ def delete_agent(agent_id: str, session: Session = Depends(get_session)) -> None
         raise HTTPException(400, "Cannot delete the root (router) agent")
     except repository.HasChildren:
         raise HTTPException(409, "Delete this agent's children first")
+
+
+@app.post("/api/agents/export")
+def export_agents(session: Session = Depends(get_session)) -> dict:
+    """Writes the DB-backed family (whatever the builder currently holds)
+    back to `config/agents.yaml`, using the exact same `save_family()` the
+    CLI's own `agents add`/`agents remove` commands already use — this isn't
+    a new serializer, just a new caller of one that's shipped since the
+    first commit.
+
+    An explicit action, not something that runs on every save: the two
+    sources of truth are deliberately kept separate day to day (see
+    docs/ROADMAP.md's decision log) — this is the escape hatch for "I want
+    what I built in the browser to be what `chat`/the voice worker/tests
+    actually use," not a silent sync. It overwrites a file tracked in git,
+    so the frontend confirms before calling this.
+
+    Nothing needs restarting afterwards: `load_family()` is called fresh by
+    every `chat`/`route` invocation and by the voice worker's
+    `new_voice_bridge()` on every new call — so the very next one already
+    sees this export, even against an already-running worker process."""
+    root = repository.build_tree(session)
+    if root is None:
+        raise HTTPException(400, "No agents yet — nothing to export")
+    save_family(root, config.AGENTS_FILE)
+    agent_count = sum(1 for _ in root.iter_subtree())
+    return {"path": str(config.AGENTS_FILE), "agent_count": agent_count}
 
 
 @app.post("/api/test/route", response_model=TestRouteResponse)

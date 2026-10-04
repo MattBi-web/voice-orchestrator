@@ -295,16 +295,25 @@ without hand-editing YAML or restarting anything. This is the product-layer gap 
 and something that resembles an ElevenLabs Agents / Vapi dashboard; the routing engine underneath
 is unchanged.
 
-**Dual source of truth, on purpose.** `config/agents.yaml` stays exactly what it was — the
-CLI's and test suite's source of truth, never touched by the web layer. The web UI reads and
-writes a separate SQLite database (`data/agents.db`, gitignored — it's a developer's own edited
-family, not something to commit), seeded once from `agents.yaml` the first time it's empty
-(`webapi/seed.py`'s `seed_if_empty()` — idempotent, safe to call on every startup, so a server
-restart never wipes edits made through the UI). The two are **not** unified in this phase: doing
-that would mean changing already-tested CLI code to serve a newer, less-tested UI layer. A
-reasonable next step, not done here. If you edit agents through the UI and want that reflected in
-`agents.yaml` too (e.g. to commit it), there's no automatic sync yet — treat the two as separate
-environments (YAML = what ships in the repo as the demo family; SQLite = your local playground).
+**Dual source of truth, on purpose — with an explicit bridge.** `config/agents.yaml` stays
+exactly what it was — the CLI's and test suite's source of truth, never touched automatically by
+the web layer. The web UI reads and writes a separate SQLite database (`data/agents.db`,
+gitignored — it's a developer's own edited family, not something to commit), seeded once from
+`agents.yaml` the first time it's empty (`webapi/seed.py`'s `seed_if_empty()` — idempotent, safe
+to call on every startup, so a server restart never wipes edits made through the UI). The two
+aren't unified by default: doing that automatically would mean changing already-tested CLI code to
+serve a newer, less-tested UI layer, and would mean every save in the browser silently overwrites a
+file tracked in git. What exists instead is a one-click, explicit export: the "↓ Esporta verso
+agents.yaml" button in the builder's sidebar calls `POST /api/agents/export`, which writes the
+current DB-backed family back to `config/agents.yaml` with the exact same `save_family()` the
+CLI's own `agents add`/`agents remove` commands already used (so this isn't a new serializer, just
+a new caller of one that shipped since the first commit). Nothing needs restarting afterwards —
+`chat`/`route`/`eval` and the voice worker's `new_voice_bridge()` all call `load_family()` fresh,
+so the very next invocation already sees the export, even against an already-running voice worker
+process. It's a manual action by design, not a sync: treat the two as separate environments day to
+day (YAML = what ships in the repo as the demo family; SQLite = your local playground), and export
+only when you actually want the browser's edits to become what `chat`, `route`, `eval`, and a real
+voice call all exercise.
 
 **What's actually stored.** `webapi/models.py`'s `AgentRow` mirrors `AgentSpec` (`agents/registry.py`)
 field-for-field, with one simplification: `triggers`/`tools`/`knowledge` are stored as JSON text on

@@ -392,3 +392,25 @@ def test_emptying_the_config_survives_a_restart(client):
     with TestClient(app) as again:  # same DB file, fresh lifespan = a restart
         body = again.get("/api/analysis/config").json()
     assert body == {"criteria": [], "data_items": []}
+
+
+def test_export_writes_the_builder_family_to_agents_yaml(client, tmp_path, monkeypatch):
+    """Must never touch the real repo config/agents.yaml in a test run — point
+    config.AGENTS_FILE at a throwaway path first, same as CALL_LOG_FILE/the
+    DB above are redirected in the fixture."""
+    export_path = tmp_path / "exported_agents.yaml"
+    monkeypatch.setattr(config, "AGENTS_FILE", export_path)
+
+    client.post("/api/agents", json={"id": "vip", "parent_id": "sales", "name": "VIP", "triggers": ["vip"]})
+
+    r = client.post("/api/agents/export")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["path"] == str(export_path)
+    assert body["agent_count"] >= 6  # router + the 4 demo agents + the new one
+
+    from voice_orchestrator.agents.registry import load_family
+
+    exported = load_family(export_path)
+    assert exported.find("vip") is not None
+    assert exported.find("vip").triggers == ["vip"]

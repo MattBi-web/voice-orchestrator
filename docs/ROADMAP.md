@@ -117,7 +117,7 @@ infrastruttura che nessuna rifinitura della UI chiude.
 | # | Problema | Impatto | Fix previsto |
 |---|---|---|---|
 | D1 | Il campo `voice` dell'agente non è collegato al TTS: la voce è fissa in `voice/worker.py` | la UI promette una cosa che non succede | blocco 2 |
-| D2 | Il worker vocale carica `config/agents.yaml`, **non** la famiglia modificata nella UI (SQLite) | le modifiche fatte nel builder non si sentono nel test vocale | unificare le due fonti, o far leggere al worker il DB |
+| ~~D2~~ | Il worker vocale (e la CLI) caricavano solo `config/agents.yaml`, non la famiglia modificata nella UI | — | ✅ risolto: `POST /api/agents/export` scrive la famiglia del builder in `agents.yaml` usando `save_family()` (già esistente, usato da `agents add`/`remove` da CLI). Azione esplicita, non automatica — va rifatta a ogni cambio da propagare. Non serve riavviare: `load_family()` viene chiamato di nuovo a ogni `chat`/`route`/chiamata vocale |
 | D3 | Il box "try it" usa sempre `FakeProvider`, anche con un provider vero configurato | il test testuale non riflette le risposte reali | opzione per usare il provider configurato |
 | D4 | Doppia fonte di verità: YAML (CLI/test) e SQLite (UI) non si sincronizzano | voluto per ora, documentato nel README | export DB → YAML, o CLI che legge il DB |
 | D5 | Nell'opzione "tool dinamici" erano promessi webhook + MCP; è stato fatto solo MCP | buco nella funzionalità | blocco 3 |
@@ -153,4 +153,5 @@ infrastruttura che nessuna rifinitura della UI chiude.
 | `f49d27b` | Dashboard di analytics sul call log |
 | `11d9ed7` | `num_idle_processes=0` sul worker (mitigazione OOM) |
 | `2a5c8e9` | Gestione server MCP dalla UI |
-| (questo commit) | Blocco 1: trascrizioni per turno, tab Conversazioni, criteri + analisi post-call |
+| `f419011` | Blocco 1: trascrizioni per turno, tab Conversazioni, criteri + analisi post-call |
+| (questo commit) | Fix D2: `POST /api/agents/export` — il builder scrive su `agents.yaml` su richiesta |

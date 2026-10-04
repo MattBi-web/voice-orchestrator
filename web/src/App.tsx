@@ -26,6 +26,8 @@ function App() {
   const [selection, setSelection] = useState<Selection>({ kind: 'none' })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [exporting, setExporting] = useState(false)
+  const [exportResult, setExportResult] = useState<string | null>(null)
 
   const reload = async () => {
     try {
@@ -54,6 +56,29 @@ function App() {
     reload()
   }
 
+  const handleExport = async () => {
+    if (
+      !confirm(
+        'Sovrascrive config/agents.yaml — il file che chat/route/eval da CLI e il worker vocale leggono — ' +
+          'con la famiglia attuale del builder. Il file è tracciato da git: se hai modifiche lì non committate, ' +
+          'questa azione le perde. Continuare?'
+      )
+    ) {
+      return
+    }
+    setExporting(true)
+    setExportResult(null)
+    setError(null)
+    try {
+      const result = await api.exportAgents()
+      setExportResult(`Esportati ${result.agent_count} agenti in ${result.path}.`)
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : String(err))
+    } finally {
+      setExporting(false)
+    }
+  }
+
   const selectedAgent =
     selection.kind === 'edit' ? findAgent(root, selection.agentId) : undefined
   const parentAgent =
@@ -65,7 +90,8 @@ function App() {
         <h1>voice-orchestrator — agent builder</h1>
         <p className="app__subtitle">
           Editing the SQLite-backed agent family (seeded once from{' '}
-          <code>config/agents.yaml</code>, then independent of it).
+          <code>config/agents.yaml</code>, then independent of it — "Esporta" in the sidebar writes it back on
+          demand).
         </p>
         <nav className="app__tabs">
           <button
@@ -123,6 +149,16 @@ function App() {
               onSelect={(id) => setSelection({ kind: 'edit', agentId: id })}
               onAddChild={(parentId) => setSelection({ kind: 'create', parentId })}
             />
+            <div className="app__export">
+              <button type="button" className="btn-link" onClick={handleExport} disabled={exporting}>
+                {exporting ? 'Esporto…' : '↓ Esporta verso agents.yaml'}
+              </button>
+              <p className="app__export-hint">
+                Così la CLI e il test vocale vedono quello che modifichi qui. Non automatico — va rifatto a ogni
+                cambio che vuoi propagare.
+              </p>
+              {exportResult && <p className="app__export-result">{exportResult}</p>}
+            </div>
           </aside>
 
           <main className="app__main">
