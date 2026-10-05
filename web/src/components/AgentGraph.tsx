@@ -58,6 +58,21 @@ function flattenWithParent(root: Agent): Agent[] {
   return out
 }
 
+/** agent.id plus every descendant's id — what a drop target must NOT be
+ * in, or the move would disconnect that subtree from the root. Mirrors
+ * webapi/repository.py's reparent_agent() cycle check, done here only so
+ * the UI can skip the confirm() dialog for an obviously invalid drop; the
+ * backend is still the real guard (D13). */
+function subtreeIds(agent: Agent): Set<string> {
+  const ids = new Set<string>()
+  const walk = (node: Agent) => {
+    ids.add(node.id)
+    node.children.forEach(walk)
+  }
+  walk(agent)
+  return ids
+}
+
 /** The router level that actually governs this parent->child edge —
  * inspected straight from the agent's own fields, not re-derived by
  * calling the router: eligibility is a Level-1 gate precondition (must
@@ -79,7 +94,8 @@ export function AgentGraph({ root, selectedId, onSelect, onAddChild, onChanged }
 
   const [positions, setPositions] = useState<Map<string, Pos>>(new Map())
   const [search, setSearch] = useState('')
-  const dragRef = useRef<{ id: string; dx: number; dy: number } | null>(null)
+  const [dropTargetId, setDropTargetId] = useState<string | null>(null)
+  const dragRef = useRef<{ id: string; dx: number; dy: number; origin: Pos } | null>(null)
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
@@ -134,8 +150,28 @@ export function AgentGraph({ root, selectedId, onSelect, onAddChild, onChanged }
     const svg = (e.target as SVGElement).ownerSVGElement
     const rect = svg?.getBoundingClientRect()
     if (!rect) return
-    dragRef.current = { id, dx: e.clientX - rect.left - pos.x, dy: e.clientY - rect.top - pos.y }
+    dragRef.current = { id, dx: e.clientX - rect.left - pos.x, dy: e.clientY - rect.top - pos.y, origin: pos }
     ;(e.target as Element).setPointerCapture(e.pointerId)
+  }
+
+  /** The node (if any) a drop at `pos` would reparent `draggedId` onto:
+   * whichever other node's box contains the dragged node's center,
+   * excluding the dragged node's own subtree (D13's cycle guard) and its
+   * current parent (that's just a move, not a reparent). Shared by the
+   * hover highlight in onPointerMove and the actual drop in onPointerUp
+   * so they never disagree about what's about to happen. */
+  const dropTargetFor = (draggedId: string, pos: Pos): Agent | null => {
+    const draggedAgent = nodes.find((n) => n.id === draggedId)
+    if (!draggedAgent) return null
+    const cx = pos.x + NODE_W / 2
+    const cy = pos.y + NODE_H / 2
+    const forbidden = subtreeIds(draggedAgent)
+    const target = nodes.find((n) => {
+      if (forbidden.has(n.id)) return false
+      const tp = positions.get(n.id)
+      return tp && cx >= tp.x && cx <= tp.x + NODE_W && cy >= tp.y && cy <= tp.y + NODE_H
+    })
+    return target && target.id !== draggedAgent.parent_id ? target : null
   }
 
   const onPointerMove = (e: React.PointerEvent) => {
@@ -146,14 +182,45 @@ export function AgentGraph({ root, selectedId, onSelect, onAddChild, onChanged }
     if (!rect) return
     const next = { x: Math.max(0, e.clientX - rect.left - drag.dx), y: Math.max(0, e.clientY - rect.top - drag.dy) }
     setPositions((prev) => new Map(prev).set(drag.id, next))
+    setDropTargetId(dropTargetFor(drag.id, next)?.id ?? null)
   }
 
+  /** D13: dropping a node onto another one reparents it there instead of
+   * just moving it. Any other drop is a plain layout move, same as
+   * before D13. */
   const onPointerUp = () => {
     const drag = dragRef.current
     dragRef.current = null
+    setDropTargetId(null)
     if (!drag) return
     const pos = positions.get(drag.id)
-    if (pos) persistLayout(drag.id, pos)
+    if (!pos) return
+
+    const draggedAgent = nodes.find((n) => n.id === drag.id)
+    const target = dropTargetFor(drag.id, pos)
+
+    if (!target || !draggedAgent) {
+      persistLayout(drag.id, pos) // no valid drop target — just a layout move
+      return
+    }
+
+    if (
+      !confirm(
+        `Spostare "${draggedAgent.name || draggedAgent.id}" sotto "${target.name || target.id}"? ` +
+          `Porta con sé tutti i suoi sotto-agenti.`,
+      )
+    ) {
+      setPositions((prev) => new Map(prev).set(drag.id, drag.origin))
+      return
+    }
+
+    api
+      .reparentAgent(drag.id, { parent_id: target.id })
+      .then(() => onChanged())
+      .catch((err) => {
+        alert(err instanceof ApiError ? err.message : String(err))
+        setPositions((prev) => new Map(prev).set(drag.id, drag.origin))
+      })
   }
 
   const handleDuplicate = async (agent: Agent, e: React.MouseEvent) => {
@@ -198,7 +265,10 @@ export function AgentGraph({ root, selectedId, onSelect, onAddChild, onChanged }
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
-        <span className="field-hint">Trascina i nodi — la posizione si salva da sola.</span>
+        <span className="field-hint">
+          Trascina i nodi — la posizione si salva da sola. Trascina un nodo sopra un altro per
+          cambiargli genitore.
+        </span>
         {selectedId && (
           <button type="button" className="btn-link" onClick={() => onAddChild(selectedId)}>
             + figlio di {selectedId}
@@ -314,7 +384,11 @@ export function AgentGraph({ root, selectedId, onSelect, onAddChild, onChanged }
                   width={NODE_W}
                   height={NODE_H}
                   rx={10}
-                  className={`agent-graph__node${selectedId === node.id ? ' agent-graph__node--selected' : ''}`}
+                  className={
+                    'agent-graph__node' +
+                    (selectedId === node.id ? ' agent-graph__node--selected' : '') +
+                    (dropTargetId === node.id ? ' agent-graph__node--drop-target' : '')
+                  }
                 />
                 <text x={10} y={22} className="agent-graph__node-title">
                   <title>{node.name || node.id}</title>

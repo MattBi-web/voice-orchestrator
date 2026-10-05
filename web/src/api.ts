@@ -2,6 +2,7 @@ import type {
   Agent,
   AgentInput,
   AgentLayoutUpdate,
+  AgentReparentRequest,
   AgentUpdateInput,
   AnalysisConfig,
   CallAnalysis,
@@ -63,6 +64,11 @@ export const api = {
     request<Agent>(`/api/agents/${encodeURIComponent(id)}/layout`, {
       method: 'PATCH',
       body: JSON.stringify(layout),
+    }),
+  reparentAgent: (id: string, body: AgentReparentRequest) =>
+    request<Agent>(`/api/agents/${encodeURIComponent(id)}/parent`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
     }),
   listTools: () => request<{ tools: string[] }>('/api/tools'),
   testRoute: (utterance: string, startAgentId: string | null, channel: string) =>

@@ -63,6 +63,14 @@ class AgentLayoutUpdate(BaseModel):
     layout_y: float
 
 
+class AgentReparentRequest(BaseModel):
+    """D13 — dropping a node onto another one in the graph PATCHes just
+    this: the new parent id. Validated server-side (repository.reparent_agent)
+    against moving the root and against creating a cycle."""
+
+    parent_id: str
+
+
 class AgentOut(BaseModel):
     id: str
     parent_id: str | None

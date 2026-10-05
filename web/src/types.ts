@@ -68,6 +68,10 @@ export interface AgentLayoutUpdate {
   layout_y: number
 }
 
+export interface AgentReparentRequest {
+  parent_id: string
+}
+
 export interface TestRouteResult {
   agent_id: string
   agent_name: string

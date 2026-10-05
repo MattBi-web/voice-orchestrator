@@ -121,9 +121,11 @@ CAI e alla tesi sulle sales force) e senza trascrizioni salvate nessuna analisi 
       una foglia è un tool esplicito (il router guarda solo in basso — vedi `routing/router.py`).
 - [x] Drag-and-drop (persistito), duplica agente (POST di una copia con nuovo id, stesso
       parent), ricerca (filtra/attenua i nodi per id/nome/descrizione).
-- [ ] Non fatto: l'"aggiungi figlio" dal grafo apre lo stesso form dell'albero, ma il grafo non
-      ha ancora un modo per cambiare il *parent* di un agente esistente (reparenting) —
-      limite preesistente di `repository.update_agent`, non introdotto da questo blocco.
+- [x] Reparenting (D13): trascinare un nodo sopra un altro nodo (invece che su spazio
+      vuoto) chiede conferma e sposta l'intero sotto-albero sotto il nuovo genitore —
+      `PATCH /api/agents/{id}/parent`, con validazione anti-ciclo sia lato client
+      (disabilita i bersagli non validi durante il trascinamento) sia, in modo
+      autoritativo, lato backend (`repository.reparent_agent`).
 
 ### Blocco 5 — Knowledge base da UI
 
@@ -154,7 +156,7 @@ infrastruttura che nessuna rifinitura della UI chiude.
 | D10 | `FakeProvider.respond()` ripete il testo dei tool così com'è: per `transfer_to_human`/`end_call` è un'istruzione per l'LLM ("Tell the caller, briefly…"), che finisce letta come risposta | visibile nelle trascrizioni senza chiavi | far restituire ai tool una nota per l'utente separata dall'istruzione per l'LLM |
 | D11 | L'euristica di valutazione (senza chiavi) dà verdetti poco sensati, es. "Agente giusto: fallito" su un instradamento corretto | etichettata come euristica, ma può confondere in una demo | per la demo pubblica configurare un provider vero; in alternativa criteri strutturali (es. agente finale atteso) |
 | **D12** | La voce per-agente (`tts_node()` override) e la chiusura automatica della chiamata dopo `end_call` (attesa euristica sul conteggio parole + `ctx.delete_room()`) sono state scritte leggendo l'API reale di `livekit-agents` 1.8.4 installata in questo ambiente, ma **mai eseguite contro una chiamata LiveKit vera** — qui non ci sono credenziali LiveKit/Deepgram/ElevenLabs. Rischio concreto: `Agent.tts` potrebbe essere letto una sola volta all'ingresso nell'agente invece che "a runtime" come dice la sua docstring, nel qual caso lo scambio di `self._tts` non avrebbe effetto | la voce per-agente e l'hangup automatico potrebbero non funzionare finché non testati su una chiamata reale | testare su una chiamata vera (serve `LIVEKIT_URL`/`DEEPGRAM_API_KEY`/`ELEVENLABS_API_KEY`) appena disponibili; se `tts_node()` non basta, l'alternativa è passare a LiveKit's multi-agent handoff pattern (un'istanza `Agent` per sotto-agente, con `session.update_agent()`), più invasivo |
-| **D13** | Il grafo (blocco 4) non supporta il reparenting: si può trascinare un nodo visivamente ma il suo genitore nell'albero non cambia | limite preesistente di `repository.update_agent` (mai esposto, non introdotto ora) | esporre `parent_id` in `AgentUpdate` + endpoint dedicato, con validazione anti-ciclo |
+| ~~D13~~ | Il grafo (blocco 4) non supporta il reparenting: si può trascinare un nodo visivamente ma il suo genitore nell'albero non cambia | limite preesistente di `repository.update_agent` (mai esposto, non introdotto ora) | ✅ risolto: `PATCH /api/agents/{id}/parent` (`repository.reparent_agent`, con `_is_descendant` anti-ciclo) + nel grafo, trascinare un nodo sopra un altro nodo (invece che su spazio vuoto) chiede conferma e sposta il sotto-albero; trascinare un nodo su un proprio discendente non è un bersaglio valido (stesso controllo lato client, poi comunque ribadito dal backend) |
 
 ---
 
@@ -172,6 +174,7 @@ infrastruttura che nessuna rifinitura della UI chiude.
 | 2026-10 | LLM per agente: `classify()` resta sempre sul provider di default della chiamata, solo `respond()` guarda l'override dell'agente | il routing deve restare economico/deterministico; far scegliere il modello di classificazione all'agente di destinazione avrebbe reso il costo di una chiamata dipendente da dove finisce, non da come inizia |
 | 2026-10 | Voce per agente via `tts_node()` override (scambio di `self._tts`), non via il multi-agent handoff pattern di LiveKit (un'istanza `Agent` per sotto-agente) | l'architettura usa già un `OrchestratorAgent` unico per tutta la chiamata (il router interno gestisce gli handoff, non LiveKit) — cambiarlo per la sola voce avrebbe significato riscrivere il modello della chiamata per un singolo campo |
 | 2026-10 | Il grafo (blocco 4) mostra solo archi genitore→figlio (sempre veri) + archi tratteggiati verso nodi virtuali per i tool di uscita (`transfer_to_human`/`end_call`), non un grafo di stato libero come il `workflow` di ElevenLabs | `routing/router.py` guarda solo in basso nell'albero — un grafo più "ricco" mentirebbe su come funziona davvero il routing |
+| 2026-10 | D13 (reparenting nel grafo): il trascinamento esistente fa doppio uso — su spazio vuoto sposta solo `layout_x`/`layout_y`, su un altro nodo cambia `parent_id` (con conferma) | riusa il gesto già presente invece di aggiungere un widget dedicato; il controllo anti-ciclo lato client (`subtreeIds`) è solo per disabilitare bersagli non validi durante il trascinamento — l'unica fonte di verità resta `reparent_agent` lato backend |
 
 ---
 
@@ -186,4 +189,5 @@ infrastruttura che nessuna rifinitura della UI chiude.
 | `2a5c8e9` | Gestione server MCP dalla UI |
 | `f419011` | Blocco 1: trascrizioni per turno, tab Conversazioni, criteri + analisi post-call |
 | `b094f8a` | Fix D2: `POST /api/agents/export` — il builder scrive su `agents.yaml` su richiesta |
-| (questo commit) | Blocco 2 (modello agente più profondo: first_message, LLM e voce per agente, tool `end_call`, picker veri) + blocco 4 (vista a grafo con drag-and-drop, duplica, ricerca, badge di livello router) |
+| `c55fea8` | Blocco 2 (modello agente più profondo: first_message, LLM e voce per agente, tool `end_call`, picker veri) + blocco 4 (vista a grafo con drag-and-drop, duplica, ricerca, badge di livello router) |
+| (questo commit) | D13: reparenting nel grafo — trascinare un nodo sopra un altro ne cambia il genitore (con conferma e anti-ciclo) |

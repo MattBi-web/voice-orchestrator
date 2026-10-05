@@ -35,6 +35,14 @@ class CannotDeleteRoot(ValueError):
     pass
 
 
+class CannotReparentRoot(ValueError):
+    pass
+
+
+class WouldCreateCycle(ValueError):
+    pass
+
+
 @dataclass
 class AgentInput:
     """What the API accepts from a create/update request — a flat, DB-row
@@ -176,6 +184,47 @@ def update_layout(session: Session, agent_id: str, x: float, y: float) -> AgentR
     row = get_row(session, agent_id)
     row.layout_x = x
     row.layout_y = y
+    session.flush()
+    return row
+
+
+def _is_descendant(session: Session, ancestor_id: str, candidate_id: str) -> bool:
+    """True if candidate_id is ancestor_id itself, or anywhere below it in
+    the tree — walked via parent_id rather than loading the whole tree,
+    since a family can be reparented one hop at a time without ever
+    materializing AgentSpec for this check."""
+    if candidate_id == ancestor_id:
+        return True
+    row = session.get(AgentRow, candidate_id)
+    while row is not None and row.parent_id is not None:
+        if row.parent_id == ancestor_id:
+            return True
+        row = session.get(AgentRow, row.parent_id)
+    return False
+
+
+def reparent_agent(session: Session, agent_id: str, new_parent_id: str) -> AgentRow:
+    """D13 (blocco 4 follow-up): moves an agent (and its whole subtree,
+    untouched) under a different parent — what the graph view's
+    drag-a-node-onto-another-node does. Its own small write, same shape as
+    update_layout: a structural move shouldn't require resending the rest
+    of the agent's form, and shouldn't risk clobbering it either."""
+    row = get_row(session, agent_id)
+    if row.parent_id is None:
+        raise CannotReparentRoot(agent_id)
+    new_parent = session.get(AgentRow, new_parent_id)
+    if new_parent is None:
+        raise ParentNotFound(f"No agent with id={new_parent_id!r} to attach to")
+    # Moving a node under itself, or under one of its own descendants,
+    # would disconnect part of the tree from the root entirely — walk down
+    # from the agent being moved (not up from the target) to catch both.
+    if _is_descendant(session, ancestor_id=agent_id, candidate_id=new_parent_id):
+        raise WouldCreateCycle(f"{new_parent_id!r} is {agent_id!r} itself or one of its own descendants")
+    if row.parent_id == new_parent_id:
+        return row  # already there — a no-op, not an error
+    siblings = session.scalars(select(AgentRow).where(AgentRow.parent_id == new_parent_id)).all()
+    row.parent_id = new_parent_id
+    row.position = len(siblings)
     session.flush()
     return row
 

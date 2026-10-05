@@ -37,6 +37,7 @@ from .schemas import (
     AgentIn,
     AgentLayoutUpdate,
     AgentOut,
+    AgentReparentRequest,
     AgentUpdate,
     AnalysisConfigSchema,
     CriterionSchema,
@@ -250,6 +251,25 @@ def update_agent_layout(
         row = repository.update_layout(session, agent_id, body.layout_x, body.layout_y)
     except repository.AgentNotFound:
         raise HTTPException(404, f"No agent with id={agent_id!r}")
+    return row_to_out(row)
+
+
+@app.patch("/api/agents/{agent_id}/parent", response_model=AgentOut)
+def reparent_agent(
+    agent_id: str, body: AgentReparentRequest, session: Session = Depends(get_session)
+) -> AgentOut:
+    """D13: moves an agent (and its subtree) under a different parent —
+    what the graph view's drag-a-node-onto-another-node does."""
+    try:
+        row = repository.reparent_agent(session, agent_id, body.parent_id)
+    except repository.AgentNotFound:
+        raise HTTPException(404, f"No agent with id={agent_id!r}")
+    except repository.CannotReparentRoot:
+        raise HTTPException(400, "Cannot reparent the root (router) agent")
+    except repository.ParentNotFound as exc:
+        raise HTTPException(400, str(exc))
+    except repository.WouldCreateCycle as exc:
+        raise HTTPException(409, str(exc))
     return row_to_out(row)
 
 

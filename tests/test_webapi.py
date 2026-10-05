@@ -147,6 +147,63 @@ def test_agent_layout_patch_unknown_agent_is_404(client):
     assert r.status_code == 404
 
 
+def test_reparent_moves_an_agent_and_keeps_its_own_fields(client):
+    """D13 — dropping a node onto another one in the graph view."""
+    before = client.get("/api/agents/billing").json()
+
+    r = client.patch("/api/agents/billing/parent", json={"parent_id": "sales"})
+    assert r.status_code == 200
+    assert r.json()["parent_id"] == "sales"
+    assert r.json()["name"] == before["name"]
+    assert r.json()["system_prompt"] == before["system_prompt"]
+
+    tree = client.get("/api/agents").json()
+    sales = next(c for c in tree["root"]["children"] if c["id"] == "sales")
+    assert "billing" in {c["id"] for c in sales["children"]}
+    assert "billing" not in {c["id"] for c in tree["root"]["children"]}
+
+
+def test_reparent_a_subtree_moves_the_whole_subtree_with_it(client):
+    r = client.patch("/api/agents/tech_support/parent", json={"parent_id": "billing"})
+    assert r.status_code == 200
+
+    billing = client.get("/api/agents/billing").json()
+    assert "tech_support" in billing["children_ids"]
+    tech_support = client.get("/api/agents/tech_support").json()
+    assert {"tech_internet", "tech_tv"} <= set(tech_support["children_ids"])
+
+
+def test_reparent_onto_own_descendant_is_rejected_as_a_cycle(client):
+    r = client.patch("/api/agents/tech_support/parent", json={"parent_id": "tech_internet"})
+    assert r.status_code == 409
+
+
+def test_reparent_onto_self_is_rejected_as_a_cycle(client):
+    r = client.patch("/api/agents/tech_support/parent", json={"parent_id": "tech_support"})
+    assert r.status_code == 409
+
+
+def test_reparent_root_is_rejected(client):
+    r = client.patch("/api/agents/router/parent", json={"parent_id": "billing"})
+    assert r.status_code == 400
+
+
+def test_reparent_onto_unknown_parent_is_400(client):
+    r = client.patch("/api/agents/billing/parent", json={"parent_id": "does_not_exist"})
+    assert r.status_code == 400
+
+
+def test_reparent_unknown_agent_is_404(client):
+    r = client.patch("/api/agents/does_not_exist/parent", json={"parent_id": "billing"})
+    assert r.status_code == 404
+
+
+def test_reparent_onto_current_parent_is_a_harmless_no_op(client):
+    r = client.patch("/api/agents/billing/parent", json={"parent_id": "router"})
+    assert r.status_code == 200
+    assert r.json()["parent_id"] == "router"
+
+
 def test_create_rejects_duplicate_id(client):
     r = client.post("/api/agents", json={"id": "billing", "parent_id": "router", "name": "dup"})
     assert r.status_code == 409

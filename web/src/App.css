@@ -1106,6 +1106,12 @@
   stroke-width: 2.5;
 }
 
+.agent-graph__node--drop-target {
+  stroke: var(--status-good);
+  stroke-width: 3;
+  fill: var(--accent-bg);
+}
+
 .agent-graph__node--virtual {
   fill: var(--code-bg);
   stroke: var(--border);
