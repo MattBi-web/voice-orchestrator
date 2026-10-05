@@ -212,3 +212,19 @@ class CallAnalysisRow(Base):
     provider: Mapped[str] = mapped_column(default="")
     call_successful: Mapped[str] = mapped_column(default="unknown")
     result_json: Mapped[str] = mapped_column(Text, default="{}")
+
+
+class KnowledgeDocRow(Base):
+    """Where a knowledge document came from (blocco 5). The content itself
+    is the file in `config.KNOWLEDGE_DIR` — the only copy, read the same way
+    by the CLI, the voice worker and this API (see knowledge.py). A file
+    with no row here (the bundled demo files, or one copied in by hand) is
+    still a perfectly valid document; it just has no recorded source."""
+
+    __tablename__ = "knowledge_docs"
+
+    name: Mapped[str] = mapped_column(primary_key=True)
+    source_type: Mapped[str] = mapped_column(default="")  # "text" | "file" | "url"
+    source_url: Mapped[str] = mapped_column(default="")
+    updated_at: Mapped[str] = mapped_column(default="")
+

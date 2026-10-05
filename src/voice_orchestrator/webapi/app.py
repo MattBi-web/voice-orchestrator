@@ -22,14 +22,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .. import analysis, call_log, config
+from .. import analysis, call_log, config, knowledge
 from ..agents.registry import save_family
 from ..llm import FakeProvider, get_provider, get_provider_for_agent
 from ..orchestrator import handle_turn
 from ..state import CallSession
 from ..tools import REGISTRY
 from ..tools import webhook_log as webhook_log_module
-from . import analysis_repository, mcp_repository, mcp_sync, repository, seed, voice_token, webhook_repository, webhook_sync
+from . import analysis_repository, knowledge_repository, mcp_repository, mcp_sync, repository, seed, voice_token, webhook_repository, webhook_sync
 from .db import get_session
 from .mcp_repository import McpServerInput
 from .models import AgentRow
@@ -43,6 +43,9 @@ from .schemas import (
     AnalysisConfigSchema,
     CriterionSchema,
     DataItemSchema,
+    KnowledgeDocIn,
+    KnowledgeSearchIn,
+    KnowledgeUrlIn,
     McpServerIn,
     McpServerOut,
     TestRouteRequest,
@@ -219,6 +222,84 @@ def list_webhook_executions(limit: int = 50) -> dict:
     records = webhook_log_module.read_all()
     records = list(reversed(records))[: max(limit, 0)]
     return {"executions": [WebhookExecutionOut(**r.as_dict()) for r in records]}
+
+
+# ---- blocco 5: knowledge base ----
+
+
+@app.get("/api/knowledge")
+def list_knowledge(session: Session = Depends(get_session)) -> dict:
+    return {
+        "documents": [d.as_dict() for d in knowledge_repository.list_documents(session)],
+        "max_chunk_chars": knowledge.MAX_CHUNK_CHARS,
+    }
+
+
+@app.post("/api/knowledge/search")
+def search_knowledge(body: KnowledgeSearchIn, session: Session = Depends(get_session)) -> dict:
+    """Preview: the chunks a question retrieves, with their BM25 scores.
+    Same `knowledge.search()` the `knowledge_lookup` tool calls mid-call —
+    with `agent_id`, over that agent's own documents, so this is exactly the
+    grounding that agent would get (it uses the top 2; the preview can show
+    more, to see what just missed)."""
+    names = list(body.documents)
+    if body.agent_id:
+        root = repository.build_tree(session)
+        agent = root.find(body.agent_id) if root else None
+        if agent is None:
+            raise HTTPException(404, f"No agent with id={body.agent_id!r}")
+        names = list(agent.knowledge)
+    if not names:
+        names = [d.name for d in knowledge_repository.list_documents(session) if d.exists]
+    hits = knowledge.search(tuple(names), body.query, top_k=body.top_k)
+    return {"documents": names, "hits": [h.__dict__ for h in hits]}
+
+
+@app.post("/api/knowledge/from-url", status_code=201)
+def add_knowledge_from_url(body: KnowledgeUrlIn, session: Session = Depends(get_session)) -> dict:
+    try:
+        suggested, text = knowledge_repository.fetch_url(body.url)
+        info = knowledge_repository.save_document(
+            session, body.name or suggested, text, source_type="url", source_url=body.url.strip(), overwrite=body.overwrite
+        )
+    except knowledge_repository.UrlFetchFailed as exc:
+        raise HTTPException(502, str(exc))
+    except knowledge_repository.DocumentExists as exc:
+        raise HTTPException(409, str(exc))
+    except knowledge_repository.InvalidDocument as exc:
+        raise HTTPException(400, str(exc))
+    return info.as_dict()
+
+
+@app.post("/api/knowledge", status_code=201)
+def add_knowledge(body: KnowledgeDocIn, session: Session = Depends(get_session)) -> dict:
+    try:
+        info = knowledge_repository.save_document(
+            session, body.name, body.content, source_type=body.source_type, overwrite=body.overwrite
+        )
+    except knowledge_repository.DocumentExists as exc:
+        raise HTTPException(409, str(exc))
+    except knowledge_repository.InvalidDocument as exc:
+        raise HTTPException(400, str(exc))
+    return info.as_dict()
+
+
+@app.get("/api/knowledge/{name}")
+def get_knowledge(name: str, session: Session = Depends(get_session)) -> dict:
+    try:
+        return knowledge_repository.get_document(session, name)
+    except knowledge_repository.DocumentNotFound:
+        raise HTTPException(404, f"No document named {name!r}")
+
+
+@app.delete("/api/knowledge/{name}", status_code=204)
+def delete_knowledge(name: str, session: Session = Depends(get_session)) -> None:
+    try:
+        knowledge_repository.delete_document(session, name)
+    except knowledge_repository.DocumentNotFound:
+        raise HTTPException(404, f"No document named {name!r}")
+    except knowledge_repository.DocumentInUse as exc:
+        raise HTTPException(409, str(exc))
 
 
 @app.get("/api/voice/status")

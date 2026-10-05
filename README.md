@@ -476,6 +476,17 @@ SQLite (`webapi/analysis_repository.py`) and feed a success-rate tile on the das
 over calls that were actually analyzed. The working roadmap and gap map against ElevenLabs live in
 [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
+**Knowledge base tab.** Documents are the files in `data/knowledge/`, the same ones the CLI and the
+voice worker read, so there's no second copy to keep in step; SQLite only records where each came
+from. The tab adds a document from pasted text, a `.md`/`.txt` file, or a web page (the server
+fetches it, turns headings into sections, drops scripts and navigation, and refuses local or
+private-network addresses, redirects included). Each document shows how it's cut into chunks, and
+"Prova una domanda" runs a question through `knowledge.search()`, the exact function the
+`knowledge_lookup` tool calls mid-call, with BM25 scores and, scoped to an agent, the two chunks
+that agent would actually get. Chunks scoring 0 are dropped, so an unrelated question grounds on
+nothing rather than on a random passage. Uploaded documents are git-ignored (they may be private):
+`git add -f` one to ship it with the repo.
+
 **Deliberately not here (yet):** phone-number provisioning and multi-tenant auth/billing. Neither
 is what differentiates this project (the routing thesis and the clean core do that); they're the
 genuinely-different-scale infrastructure gap between a portfolio demo and ElevenLabs Agents/Vapi

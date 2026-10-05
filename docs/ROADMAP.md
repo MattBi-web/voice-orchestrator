@@ -3,7 +3,7 @@
 Documento di lavoro: tiene traccia di dove siamo, dove vogliamo arrivare e perché.
 Si aggiorna a ogni feature, nello stesso commit del codice.
 
-Ultimo aggiornamento: 2026-10-05 (D3 + D10 + D11 + D15)
+Ultimo aggiornamento: 2026-10-05 (blocco 5)
 
 ---
 
@@ -41,7 +41,7 @@ Legenda: ✅ fatto · 🟡 parziale · ❌ manca · ⏸️ escluso di proposito
 | **Tool built-in** | `end_call`, `transfer_to_number`, `transfer_to_agent`, `language_detection`, `voicemail_detection`, `skip_turn` | `transfer_to_human`, `end_call` | 🟡 |
 | **Tool custom** | webhook HTTP con parametri in JSON schema, client tool, secrets | tool Python fissi + server MCP gestibili da UI + **tool webhook HTTP gestibili da UI** (URL/metodo/header/parametri, secrets via variabile d'ambiente, log esecuzioni) | ✅ (manca ancora il "client tool" lato browser) |
 | **MCP** | CRUD server, lista tool, approval policy | CRUD server da UI, attivi senza riavvio | ✅ (senza approval policy) |
-| **Knowledge base** | upload file/URL/testo, crawl, indice RAG, cartelle | file markdown in `data/knowledge/` referenziati per nome, BM25 | 🟡 |
+| **Knowledge base** | upload file/URL/testo, crawl, indice RAG, cartelle | tab dedicata: documenti da testo, file `.md`/`.txt` o pagina web; vista dei chunk; anteprima di cosa recupera una domanda (per documento o "come lo vede un agente"); picker nel form agente. BM25, file in `data/knowledge/` | ✅ (niente crawl, cartelle, PDF/DOCX, ricerca semantica — vedi D17) |
 | **Test testuale** | "simulate conversation" | box "try it" (un turno), sul provider configurato o su FakeProvider, con il provider che ha risposto mostrato accanto alla risposta | 🟡 (un turno solo, niente conversazione simulata) |
 | **Test vocale** | widget / link condivisibile | tab "Test live (voce)" via LiveKit | ✅ (vedi debito D12) |
 | **Conversazioni** | lista, dettaglio con trascrizione + audio, feedback, ricerca, tag | lista + dettaglio con trascrizione e routing/tool per turno; niente audio, ricerca, tag | 🟡 |
@@ -159,10 +159,32 @@ CAI e alla tesi sulle sales force) e senza trascrizioni salvate nessuna analisi 
       (disabilita i bersagli non validi durante il trascinamento) sia, in modo
       autoritativo, lato backend (`repository.reparent_agent`).
 
-### Blocco 5 — Knowledge base da UI
+### Blocco 5 — Knowledge base da UI  ✅ consegnato
 
-- [ ] Upload file / testo / URL dalla UI.
-- [ ] Anteprima dei chunk recuperati per una domanda di prova.
+- [x] Core condiviso `knowledge.py`: chunking (sezioni `##`, poi paragrafi oltre
+      `MAX_CHUNK_CHARS` = 1200, con il titolo della sezione ripetuto su ogni pezzo; una
+      sezione fatta solo di titoli non è un chunk) e ricerca BM25 con punteggi e
+      provenienza (documento, indice del chunk). Lo usa il tool `knowledge_lookup` *e*
+      l'anteprima della UI: l'anteprima non può divergere da ciò che l'agente riceve.
+- [x] Indice in cache con chiave (nome, mtime, dimensione) per file: un documento
+      modificato dalla UI viene re-indicizzato alla query successiva, senza riavvio
+      (prima la cache `lru_cache` per nome serviva il contenuto vecchio per sempre).
+- [x] Passaggi con punteggio 0 scartati: se nessun chunk ha parole in comune con la
+      domanda, il tool dice al modello che non c'è nulla e al chiamante non dice niente,
+      invece di leggere un paragrafo a caso. Il tool ora registra anche le fonti
+      (`data.sources`: documento, chunk, punteggio).
+- [x] Upload da testo, file (`.md`/`.txt`, letto nel browser e inviato come testo) e
+      URL (`POST /api/knowledge/from-url`: HTML → testo con i titoli convertiti in
+      sezioni, script/nav/footer scartati; rifiuta host locali/privati anche dopo un
+      redirect). Nomi normalizzati, niente path; 409 se esiste già, salvo "sovrascrivi".
+- [x] Vista documento: origine, dimensione, agenti che lo usano, chunk numerati o testo
+      completo. Eliminazione rifiutata (409) se un agente lo usa ancora. Un nome
+      referenziato da un agente senza file dietro compare in lista come "file mancante".
+- [x] Anteprima "Prova una domanda": su tutti i documenti, su uno, o sui documenti di un
+      agente (con i primi 2 marcati "usato dall'agente", come fa il tool); clic su un
+      risultato apre il documento sul chunk evidenziato.
+- [x] Form agente: i file di knowledge sono checkbox sui documenti esistenti, non più
+      nomi a testo libero (un refuso falliva in silenzio).
 
 ### Escluso di proposito (per ora)
 
@@ -191,6 +213,8 @@ infrastruttura che nessuna rifinitura della UI chiude.
 | ~~D13~~ | Il grafo (blocco 4) non supporta il reparenting: si può trascinare un nodo visivamente ma il suo genitore nell'albero non cambia | limite preesistente di `repository.update_agent` (mai esposto, non introdotto ora) | ✅ risolto: `PATCH /api/agents/{id}/parent` (`repository.reparent_agent`, con `_is_descendant` anti-ciclo) + nel grafo, trascinare un nodo sopra un altro nodo (invece che su spazio vuoto) chiede conferma e sposta il sotto-albero; trascinare un nodo su un proprio discendente non è un bersaglio valido (stesso controllo lato client, poi comunque ribadito dal backend) |
 | **D14** | Il tool webhook demo (`network_status`, blocco 3) punta a `https://httpbin.org/anything` — a differenza di ogni altro demo in questo progetto (MCP: un processo locale; agenti/tool built-in: zero rete), questo ha bisogno per forza di internet in uscita, perché un tool HTTP non ha un equivalente "stdio locale" | il "try it"/la chiamata vocale di demo che tocca `tech_internet` con una frase come "stato della rete" fallisce offline o dietro un firewall che blocca httpbin.org | accettato e dichiarato esplicitamente nel commento YAML, non nascosto; i test restano offline al 100% (`httpx.MockTransport`, vedi tests/test_webhook_tool.py) — se serve un demo offline, l'alternativa è un server HTTP locale bundlato con lifecycle proprio, più invasivo di quanto valga per questa demo |
 | ~~D15~~ | `create_all()` crea le tabelle mancanti ma non tocca quelle esistenti: un `agents.db` creato prima del blocco 2/4 non aveva `first_message`, `llm_*`, `voice_*`, `layout_*` (ogni query su `agents` falliva) e aveva ancora la colonna `voice` NOT NULL senza default (ogni INSERT falliva). Trovato sul DB locale del Mac | — | ✅ risolto: `db.sync_columns()` all'apertura aggiunge le colonne mancanti con il default del modello, ed elimina solo le colonne orfane NOT NULL senza default (le altre restano). Non è un framework di migrazioni: niente rinomini né cambi di tipo |
+| **D16** | I documenti caricati dalla UI vivono in `data/knowledge/` sulla macchina dove gira l'API, e sono in `.gitignore` (solo i 4 file demo sono tracciati) | il worker vocale deployato (Render) non li vede finché non vengono committati a mano (`git add -f data/knowledge/<nome>`) | voluto: un documento caricato può essere privato e il repo è un portfolio pubblico — meglio un passo esplicito che un commit accidentale. Stesso principio dell'export manuale di D2/D4 |
+| **D17** | Limiti della knowledge base: retrieval solo lessicale (BM25, nessuna stopword: "a", "il" contano), nessun supporto PDF/DOCX, nessun crawl di più pagine, nessuna cartella | una domanda in italiano su un documento in inglese recupera poco; l'anteprima lo rende visibile, non lo risolve | stopword italiane come primo passo economico; poi estrazione PDF (`pypdf`) e, se serve, la pipeline ibrida di Company Brain dietro la stessa interfaccia `knowledge.search()` |
 
 ---
 
@@ -214,6 +238,10 @@ infrastruttura che nessuna rifinitura della UI chiude.
 | 2026-10 | D10: ogni tool restituisce due testi, `summary` per l'LLM e `caller_text` per il chiamante, invece di un solo testo "neutro" | un'istruzione al modello ("di' al chiamante che…") è il modo giusto di guidare un LLM ed è sbagliata letta parola per parola; un solo testo costringe a peggiorare l'uno o l'altro caso |
 | 2026-10 | D11: senza un LLM, un criterio scritto in linguaggio naturale è `unknown`, non stimato | un punteggio a parole in comune *sembra* un verdetto e sbaglia una volta su due: in una demo è peggio di nessun verdetto. Ciò che si può verificare davvero senza modello (dove è finita la chiamata, quali tool sono partiti) diventa un tipo di criterio a sé, deterministico anche con un LLM configurato |
 | 2026-10 | D15: `sync_columns()` additivo invece di Alembic | lo schema è piccolo e cambia per aggiunte; serve che un DB locale vecchio continui ad aprirsi, non una storia delle migrazioni. Da rivedere al primo rinomino o cambio di tipo |
+| 2026-10 | Blocco 5: il contenuto dei documenti resta nei file di `data/knowledge/`; SQLite tiene solo da dove vengono (`KnowledgeDocRow`) | CLI, worker vocale e API leggono gli stessi file: per la knowledge base non nasce una seconda fonte di verità come per gli agenti (D4) |
+| 2026-10 | Blocco 5: upload di file come JSON (il browser legge il file e manda il testo), non multipart | niente dipendenza `python-multipart`, e accettiamo comunque solo formati testo; l'estrazione da PDF sarebbe lato server in ogni caso |
+| 2026-10 | Blocco 5: la ricerca scarta i chunk con punteggio 0 invece di restituire "i migliori tra niente" | un passaggio senza nessuna parola in comune con la domanda non è grounding, è rumore che il modello (o FakeProvider) presenta come risposta |
+| 2026-10 | Blocco 5: "aggiungi da URL" controlla l'host a ogni richiesta (redirect inclusi) e rifiuta indirizzi locali/privati | la pagina la scarica il server: senza controllo, il campo URL leggerebbe qualsiasi servizio raggiungibile dalla sua rete |
 | 2026-10 | Blocco 3: log delle esecuzioni webhook in un JSONL dedicato (`data/webhook_log.jsonl`, `tools/webhook_log.py`), non negli `attributes` di `CallSession.event_log`/`call_log.jsonl` | stesso principio di `call_log.py`: il tool che fa la chiamata HTTP (e quindi `orchestrator.py`, la CLI, il worker vocale che lo importano) deve restare installabile con zero dipendenze `webapi` (niente sqlalchemy/fastapi); un file JSONL separato ottiene lo stesso risultato senza toccare `orchestrator.py` o lo schema di `CallRecord` |
 
 ---
@@ -232,4 +260,5 @@ infrastruttura che nessuna rifinitura della UI chiude.
 | `c55fea8` | Blocco 2 (modello agente più profondo: first_message, LLM e voce per agente, tool `end_call`, picker veri) + blocco 4 (vista a grafo con drag-and-drop, duplica, ricerca, badge di livello router) |
 | `5ab1db0` | D13: reparenting nel grafo — trascinare un nodo sopra un altro ne cambia il genitore (con conferma e anti-ciclo) |
 | `1b6e10d` | Blocco 3: tool webhook HTTP (URL/metodo/header/parametri, secrets via variabile d'ambiente, log esecuzioni) — risolve anche D5 |
-| (questo commit) | D3 (try-it sul provider configurato), D10 (testo per il chiamante separato dall'istruzione per l'LLM), D11 (criteri strutturali, niente verdetti euristici sui criteri in linguaggio naturale), D15 (`sync_columns()`: un DB locale vecchio torna ad aprirsi) |
+| `a0e9dde` | D3 (try-it sul provider configurato), D10 (testo per il chiamante separato dall'istruzione per l'LLM), D11 (criteri strutturali, niente verdetti euristici sui criteri in linguaggio naturale), D15 (`sync_columns()`: un DB locale vecchio torna ad aprirsi) |
+| (questo commit) | Blocco 5: knowledge base da UI (documenti da testo/file/URL, vista dei chunk, anteprima del retrieval, picker nel form agente; ricerca condivisa con il tool, cache invalidata alla modifica, chunk a punteggio 0 scartati) |

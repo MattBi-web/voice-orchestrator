@@ -13,6 +13,9 @@ import type {
   McpServer,
   LlmStatus,
   TestRouteResult,
+  KnowledgeDoc,
+  KnowledgeDocDetail,
+  KnowledgeSearchResult,
   VoiceStatus,
   VoiceToken,
   WebhookExecution,
@@ -51,6 +54,17 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  // ---- blocco 5: knowledge base ----
+  listKnowledge: () => request<{ documents: KnowledgeDoc[]; max_chunk_chars: number }>('/api/knowledge'),
+  getKnowledge: (name: string) => request<KnowledgeDocDetail>(`/api/knowledge/${encodeURIComponent(name)}`),
+  addKnowledge: (body: { name: string; content: string; source_type: 'text' | 'file'; overwrite?: boolean }) =>
+    request<KnowledgeDoc>('/api/knowledge', { method: 'POST', body: JSON.stringify(body) }),
+  addKnowledgeFromUrl: (body: { url: string; name?: string; overwrite?: boolean }) =>
+    request<KnowledgeDoc>('/api/knowledge/from-url', { method: 'POST', body: JSON.stringify(body) }),
+  deleteKnowledge: (name: string) =>
+    request<void>(`/api/knowledge/${encodeURIComponent(name)}`, { method: 'DELETE' }),
+  searchKnowledge: (body: { query: string; documents?: string[]; agent_id?: string | null; top_k?: number }) =>
+    request<KnowledgeSearchResult>('/api/knowledge/search', { method: 'POST', body: JSON.stringify(body) }),
   getTree: () => request<{ root: Agent | null }>('/api/agents'),
   exportAgents: () => request<ExportResult>('/api/agents/export', { method: 'POST' }),
   getAgent: (id: string) => request<Agent>(`/api/agents/${encodeURIComponent(id)}`),

@@ -262,3 +262,41 @@ export interface ExportResult {
   path: string
   agent_count: number
 }
+
+// ---- blocco 5: knowledge base ----
+
+export interface KnowledgeDoc {
+  name: string
+  /** false: an agent references this name but there's no file for it. */
+  exists: boolean
+  size_bytes: number
+  chunk_count: number
+  /** "" for files with no recorded source (the bundled demo files). */
+  source_type: '' | 'text' | 'file' | 'url'
+  source_url: string
+  updated_at: string
+  used_by: string[]
+}
+
+export interface KnowledgeChunk {
+  index: number
+  text: string
+}
+
+export interface KnowledgeDocDetail extends KnowledgeDoc {
+  content: string
+  chunks: KnowledgeChunk[]
+}
+
+export interface KnowledgeHit {
+  document: string
+  index: number
+  text: string
+  score: number
+}
+
+export interface KnowledgeSearchResult {
+  documents: string[]
+  hits: KnowledgeHit[]
+}
+

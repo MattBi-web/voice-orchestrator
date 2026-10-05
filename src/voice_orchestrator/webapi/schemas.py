@@ -264,3 +264,33 @@ class AnalysisConfigSchema(BaseModel):
 
     criteria: list[CriterionSchema] = Field(default_factory=list)
     data_items: list[DataItemSchema] = Field(default_factory=list)
+
+
+# ---- blocco 5: knowledge base ----
+
+
+class KnowledgeDocIn(BaseModel):
+    """Pasted text, or an uploaded file the browser has already read as
+    text (see knowledge_repository's docstring for why not multipart)."""
+
+    name: str
+    content: str
+    source_type: Literal["text", "file"] = "text"
+    overwrite: bool = False
+
+
+class KnowledgeUrlIn(BaseModel):
+    url: str
+    name: str = ""  # empty: derived from the page title
+    overwrite: bool = False
+
+
+class KnowledgeSearchIn(BaseModel):
+    """Either an explicit list of documents, or an agent whose `knowledge`
+    list to search — the latter is exactly what that agent gets mid-call."""
+
+    query: str
+    documents: list[str] = Field(default_factory=list)
+    agent_id: str | None = None
+    top_k: int = Field(default=3, ge=1, le=20)
+

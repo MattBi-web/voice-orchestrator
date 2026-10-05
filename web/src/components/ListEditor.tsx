@@ -1,6 +1,6 @@
 /** A small, reusable "list of strings" editor — one text input per item,
- * an add button, a remove button per row. Used for triggers and knowledge
- * filenames, which are both just string[] with no extra structure. */
+ * an add button, a remove button per row. Used for triggers and other plain
+ * string[] fields with no extra structure. */
 interface Props {
   label: string
   values: string[]

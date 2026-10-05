@@ -20,3 +20,11 @@ web/dist/
 data/webhook_log.jsonl
 # Scratch folder for files the assistant moved aside instead of deleting.
 _to_delete/
+# Blocco 5: documents uploaded from the agent builder may be private — only
+# the bundled demo files are tracked. To ship one with the repo (e.g. to
+# the deployed voice worker), add it explicitly: git add -f data/knowledge/<name>
+data/knowledge/*
+!data/knowledge/billing_policy.md
+!data/knowledge/internet_troubleshooting.md
+!data/knowledge/plans_and_offers.md
+!data/knowledge/tv_troubleshooting.md

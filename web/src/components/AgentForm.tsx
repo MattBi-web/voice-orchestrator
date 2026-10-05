@@ -3,6 +3,7 @@ import type { Agent, ToolBinding } from '../types'
 import { api, ApiError } from '../api'
 import { EligibilityBuilder } from './EligibilityBuilder'
 import { ListEditor } from './ListEditor'
+import { KnowledgePicker } from './KnowledgePicker'
 import { LlmOverridePicker } from './LlmOverridePicker'
 import { ToolsEditor } from './ToolsEditor'
 import { VoicePicker } from './VoicePicker'
@@ -230,12 +231,7 @@ export function AgentForm({ mode, initial, parentId, parentName, availableTools,
 
       <ToolsEditor values={state.tools} availableTools={availableTools} onChange={(tools) => update({ tools })} />
 
-      <ListEditor
-        label="Knowledge files"
-        values={state.knowledge}
-        placeholder="e.g. internet_support.md"
-        onChange={(knowledge) => update({ knowledge })}
-      />
+      <KnowledgePicker values={state.knowledge} onChange={(knowledge) => update({ knowledge })} />
 
       <div className="form-actions">
         <button type="submit" disabled={saving}>

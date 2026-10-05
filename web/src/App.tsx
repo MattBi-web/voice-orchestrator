@@ -11,6 +11,7 @@ import { Dashboard } from './components/Dashboard'
 import { McpServersPanel } from './components/McpServersPanel'
 import { WebhookToolsPanel } from './components/WebhookToolsPanel'
 import { Conversations } from './components/Conversations'
+import { KnowledgeBase } from './components/KnowledgeBase'
 import './App.css'
 
 type Selection =
@@ -18,7 +19,7 @@ type Selection =
   | { kind: 'edit'; agentId: string }
   | { kind: 'create'; parentId: string }
 
-type View = 'builder' | 'voice' | 'dashboard' | 'conversations'
+type View = 'builder' | 'knowledge' | 'voice' | 'dashboard' | 'conversations'
 type BuilderSubview = 'tree' | 'graph'
 
 function App() {
@@ -106,6 +107,13 @@ function App() {
           </button>
           <button
             type="button"
+            className={view === 'knowledge' ? 'app__tab app__tab--active' : 'app__tab'}
+            onClick={() => setView('knowledge')}
+          >
+            Knowledge base
+          </button>
+          <button
+            type="button"
             className={view === 'voice' ? 'app__tab app__tab--active' : 'app__tab'}
             onClick={() => setView('voice')}
           >
@@ -130,7 +138,9 @@ function App() {
 
       {error && <p className="error app__error">{error}</p>}
 
-      {view === 'voice' ? (
+      {view === 'knowledge' ? (
+        <KnowledgeBase root={root} />
+      ) : view === 'voice' ? (
         <VoiceTestConsole />
       ) : view === 'dashboard' ? (
         <Dashboard

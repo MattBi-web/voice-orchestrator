@@ -111,7 +111,7 @@ class FakeProvider(LLMProvider):
         # D10: read the caller-facing notes, never the LLM-facing ones —
         # those can be instructions ("Tell the caller, briefly…") that would
         # otherwise end up spoken/transcribed as the reply itself.
-        notes = caller_notes if caller_notes is not None else tool_notes
+        notes = [n for n in (caller_notes if caller_notes is not None else tool_notes) if n]
         if notes:
             return f"[{agent.name}] " + " ".join(notes)
         return f"[{agent.name}] Ho capito: «hai detto '{utterance.strip()}'» — come posso aiutarti su questo?"

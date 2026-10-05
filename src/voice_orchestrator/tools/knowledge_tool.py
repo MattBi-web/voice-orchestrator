@@ -10,38 +10,10 @@ Unlike the other tools, this one is always "triggered" when the agent has
 any knowledge configured — it's grounding for every reply, not a discrete
 action a specific utterance asks for.
 """
-import re
-from functools import lru_cache
-from pathlib import Path
-
-import bm25s
-
-from .. import config
+from .. import knowledge
 from ..agents.registry import AgentSpec
 from ..state import CallSession
 from .base import Tool, ToolResult
-
-
-def _tokenize(text: str) -> list[str]:
-    return re.findall(r"[a-zàèéìòù0-9]+", text.lower())
-
-
-@lru_cache(maxsize=None)
-def _load_index(knowledge_files: tuple[str, ...]):
-    passages: list[str] = []
-    for name in knowledge_files:
-        path = config.KNOWLEDGE_DIR / name
-        if not path.exists():
-            continue
-        text = path.read_text(encoding="utf-8")
-        # Split on ## section headers (same reasoning as Company Brain: don't
-        # cut a table/clause in half) — good enough for these small files.
-        sections = re.split(r"\n(?=##\s)", text)
-        passages.extend(s.strip() for s in sections if s.strip())
-
-    retriever = bm25s.BM25()
-    retriever.index([_tokenize(p) for p in passages], show_progress=False)
-    return retriever, passages
 
 
 class KnowledgeLookupTool(Tool):
@@ -52,23 +24,30 @@ class KnowledgeLookupTool(Tool):
         return bool(agent.knowledge)
 
     def run(self, agent: AgentSpec, utterance: str, session: CallSession, top_k: int = 2) -> ToolResult:
-        retriever, passages = _load_index(tuple(agent.knowledge))
-        if not passages:
+        # Chunking and search live in knowledge.py (blocco 5), shared with the
+        # agent builder's preview, so what the editor previews is what the
+        # agent gets here.
+        hits = knowledge.search(tuple(agent.knowledge), utterance, top_k=top_k)
+        if not hits:
+            # Nothing in the agent's documents shares a word with the
+            # utterance. Say so to the model; say nothing to the caller (an
+            # empty caller_text adds nothing to FakeProvider's reply), rather
+            # than reading out an unrelated passage as if it answered.
             return ToolResult(
-                summary="No knowledge base configured for this agent.",
-                caller_text="Su questo non ho informazioni a disposizione.",
+                summary="The knowledge base has no passage relevant to this utterance: don't invent one.",
+                caller_text="",
+                data={"passages": [], "sources": []},
             )
 
-        query_tokens = _tokenize(utterance)
-        k = min(top_k, len(passages))
-        results, _scores = retriever.retrieve([query_tokens], k=k, show_progress=False)
-        top_passages = [passages[i] for i in results[0].tolist()]
-
+        top_passages = [h.text for h in hits]
         joined = "\n\n---\n\n".join(top_passages)
         return ToolResult(
             summary=f"Grounding passages from {agent.name}'s knowledge base:\n\n{joined}",
             # FakeProvider has no model to paraphrase with: the single best
             # passage, verbatim, is the honest stand-in for a grounded answer.
-            caller_text=top_passages[0] if top_passages else "",
-            data={"passages": top_passages},
+            caller_text=top_passages[0],
+            data={
+                "passages": top_passages,
+                "sources": [{"document": h.document, "chunk": h.index, "score": h.score} for h in hits],
+            },
         )
