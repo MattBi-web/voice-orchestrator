@@ -11,7 +11,8 @@ would buy nothing this version actually uses. If a future version needs to
 query across tools or triggers, that's the moment to normalize them out.
 
 No migration framework (Alembic, etc.) either — `Base.metadata.create_all()`
-in `db.py` is the whole "migration" story for now. Fine for a single-table
+plus `db.sync_columns()` (adds columns a newer model maps) is the whole
+"migration" story for now. Fine for a single-table
 schema in active development; worth revisiting before this schema needs to
 change under real user data someone cares about keeping.
 """
@@ -182,6 +183,9 @@ class EvaluationCriterionRow(Base):
     name: Mapped[str] = mapped_column(default="")
     prompt: Mapped[str] = mapped_column(Text, default="")
     position: Mapped[int] = mapped_column(default=0)
+    # D11 — analysis.KIND_* and its argument list (agent or tool ids).
+    kind: Mapped[str] = mapped_column(default="llm")
+    expected_json: Mapped[str] = mapped_column(Text, default="[]")
 
 
 class DataCollectionItemRow(Base):

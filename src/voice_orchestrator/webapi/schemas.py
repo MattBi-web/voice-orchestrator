@@ -142,6 +142,10 @@ class TestRouteRequest(BaseModel):
     start_agent_id: str | None = None  # defaults to the family's root
     channel: str = "voice"
     slots: dict = Field(default_factory=dict)
+    # D3: False (the default) keeps the zero-key FakeProvider path; True runs
+    # the turn on the configured provider (VOICE_ORCH_PROVIDER), i.e. the
+    # same replies a real call would get.
+    use_configured_provider: bool = False
 
 
 class TestRouteResponse(BaseModel):
@@ -152,6 +156,10 @@ class TestRouteResponse(BaseModel):
     handed_off: bool
     reply: str
     tool_ids_used: list[str]
+    # Class name of the provider that actually composed `reply` — after the
+    # per-agent override (blocco 2), so the UI never labels a reply with the
+    # wrong model.
+    provider: str = "FakeProvider"
 
 
 class McpServerIn(BaseModel):
@@ -237,7 +245,11 @@ class WebhookExecutionOut(BaseModel):
 class CriterionSchema(BaseModel):
     id: str
     name: str = ""
-    prompt: str
+    prompt: str = ""
+    # D11 — analysis.KINDS; `expected` is the kind's argument (agent ids for
+    # final_agent, tool ids for tool_used/tool_not_used), unused for llm.
+    kind: Literal["llm", "final_agent", "tool_used", "tool_not_used"] = "llm"
+    expected: list[str] = Field(default_factory=list)
 
 
 class DataItemSchema(BaseModel):

@@ -551,7 +551,9 @@ def test_unknown_call_is_404_for_detail_and_analyze(client):
 
 def test_analysis_config_is_seeded_with_defaults(client):
     config_body = client.get("/api/analysis/config").json()
-    assert [c["id"] for c in config_body["criteria"]] == ["richiesta_risolta", "agente_corretto"]
+    assert [c["id"] for c in config_body["criteria"]] == ["richiesta_risolta", "agente_corretto", "senza_operatore"]
+    kinds = {c["id"]: (c["kind"], c["expected"]) for c in config_body["criteria"]}
+    assert kinds["senza_operatore"] == ("tool_not_used", ["transfer_to_human"])
     assert {d["id"] for d in config_body["data_items"]} == {"motivo_chiamata", "richiesta_operatore"}
 
 
@@ -561,7 +563,7 @@ def test_analyze_stores_result_and_feeds_list_and_stats(client):
 
     assert result["method"] == "heuristic"  # no API key in tests
     assert result["call_successful"] in ("success", "failure", "unknown")
-    assert {c["criterion_id"] for c in result["criteria"]} == {"richiesta_risolta", "agente_corretto"}
+    assert {c["criterion_id"] for c in result["criteria"]} == {"richiesta_risolta", "agente_corretto", "senza_operatore"}
     data = {d["item_id"]: d["value"] for d in result["data"]}
     assert data["richiesta_operatore"] is True  # "voglio parlare con un operatore"
 
@@ -639,3 +641,107 @@ def test_export_writes_the_builder_family_to_agents_yaml(client, tmp_path, monke
     exported = load_family(export_path)
     assert exported.find("vip") is not None
     assert exported.find("vip").triggers == ["vip"]
+
+
+# ---- D3: try-it box on the configured provider ----
+
+
+def test_llm_status_reports_fake_by_default(client):
+    assert client.get("/api/llm/status").json() == {"requested": "fake", "resolved": "FakeProvider", "real": False}
+
+
+def test_test_route_defaults_to_fake_provider(client):
+    body = client.post("/api/test/route", json={"utterance": "il wifi non si connette"}).json()
+    assert body["provider"] == "FakeProvider"
+
+
+def test_test_route_can_use_the_configured_provider(client, monkeypatch):
+    from voice_orchestrator import llm
+    from voice_orchestrator.webapi import app as app_module
+
+    class Configured(llm.FakeProvider):
+        def respond(self, *args, **kwargs):
+            return "risposta dal provider configurato"
+
+    monkeypatch.setattr(app_module, "get_provider", lambda *a, **k: Configured())
+    body = client.post(
+        "/api/test/route", json={"utterance": "il wifi non si connette", "use_configured_provider": True}
+    ).json()
+    assert body["reply"] == "risposta dal provider configurato"
+    assert body["provider"] == "Configured"
+
+
+def test_test_route_provider_error_is_a_502(client, monkeypatch):
+    from voice_orchestrator import llm
+    from voice_orchestrator.webapi import app as app_module
+
+    class Broken(llm.LLMProvider):
+        def classify(self, *a, **k):
+            raise RuntimeError("invalid x-api-key")
+
+        def respond(self, *a, **k):
+            raise RuntimeError("invalid x-api-key")
+
+        def summarize(self, *a, **k):
+            return ""
+
+    monkeypatch.setattr(app_module, "get_provider", lambda *a, **k: Broken())
+    r = client.post("/api/test/route", json={"utterance": "zzz", "use_configured_provider": True})
+    assert r.status_code == 502
+    assert "invalid x-api-key" in r.json()["detail"]
+
+
+# ---- D11: criterion kinds through the API ----
+
+
+def test_put_analysis_config_round_trips_kinds_and_validates_them(client):
+    body = {
+        "criteria": [
+            {"id": "fine", "name": "Fine", "kind": "final_agent", "expected": ["roaming"]},
+            {"id": "llm", "name": "LLM", "prompt": "Il chiamante è soddisfatto."},
+        ],
+        "data_items": [],
+    }
+    r = client.put("/api/analysis/config", json=body)
+    assert r.status_code == 200
+    got = {c["id"]: c for c in r.json()["criteria"]}
+    assert got["fine"]["kind"] == "final_agent" and got["fine"]["expected"] == ["roaming"]
+    assert got["llm"]["kind"] == "llm"
+
+    no_tool = {"criteria": [{"id": "t", "kind": "tool_used", "expected": []}], "data_items": []}
+    assert client.put("/api/analysis/config", json=no_tool).status_code == 400
+    no_prompt = {"criteria": [{"id": "p", "kind": "llm", "prompt": " "}], "data_items": []}
+    assert client.put("/api/analysis/config", json=no_prompt).status_code == 400
+
+
+def test_sync_columns_upgrades_a_pre_blocco_2_database(tmp_path):
+    """A DB created by an older model: `agents` lacks every blocco 2/4
+    column and still has the NOT NULL `voice` column the model dropped;
+    `evaluation_criteria` lacks D11's columns. Opening it must add what's
+    missing and drop the column that would break every INSERT."""
+    import sqlite3
+
+    path = tmp_path / "old.db"
+    con = sqlite3.connect(path)
+    con.executescript(
+        """
+        CREATE TABLE agents (id VARCHAR NOT NULL, parent_id VARCHAR, name VARCHAR NOT NULL,
+            description VARCHAR NOT NULL, system_prompt VARCHAR NOT NULL, eligibility VARCHAR NOT NULL,
+            voice VARCHAR NOT NULL, position INTEGER NOT NULL, triggers_json TEXT NOT NULL,
+            tools_json TEXT NOT NULL, knowledge_json TEXT NOT NULL, PRIMARY KEY (id),
+            FOREIGN KEY(parent_id) REFERENCES agents (id));
+        CREATE TABLE evaluation_criteria (id VARCHAR NOT NULL, name VARCHAR NOT NULL,
+            prompt TEXT NOT NULL, position INTEGER NOT NULL, PRIMARY KEY (id));
+        INSERT INTO evaluation_criteria VALUES ('vecchio', 'Vecchio', 'prompt', 0);
+        """
+    )
+    con.commit()
+    con.close()
+
+    engine = db.make_engine(path)
+    cols = {r[1] for r in sqlite3.connect(path).execute("PRAGMA table_info(agents)")}
+    assert {"first_message", "llm_provider", "voice_id", "layout_x"} <= cols
+    assert "voice" not in cols
+    crit = sqlite3.connect(path).execute("SELECT kind, expected_json FROM evaluation_criteria").fetchall()
+    assert crit == [("llm", "[]")]
+    assert db.sync_columns(engine) == []  # idempotent

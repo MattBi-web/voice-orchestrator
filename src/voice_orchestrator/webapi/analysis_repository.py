@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from ..analysis import DATA_TYPES, AnalysisResult, DataCollectionItem, EvaluationCriterion
+from ..analysis import DATA_TYPES, KIND_LLM, KIND_TOOL_NOT_USED, KIND_TOOL_USED, KINDS, AnalysisResult, DataCollectionItem, EvaluationCriterion
 from .models import CallAnalysisRow, DataCollectionItemRow, EvaluationCriterionRow
 
 _ID_RE = re.compile(r"^[a-zA-Z0-9_-]{1,64}$")
@@ -26,7 +26,10 @@ def get_config(session: Session) -> tuple[list[EvaluationCriterion], list[DataCo
     crit_rows = session.scalars(select(EvaluationCriterionRow).order_by(EvaluationCriterionRow.position)).all()
     item_rows = session.scalars(select(DataCollectionItemRow).order_by(DataCollectionItemRow.position)).all()
     return (
-        [EvaluationCriterion(id=r.id, name=r.name, prompt=r.prompt) for r in crit_rows],
+        [
+            EvaluationCriterion(id=r.id, name=r.name, prompt=r.prompt, kind=r.kind or KIND_LLM, expected=json.loads(r.expected_json or "[]"))
+            for r in crit_rows
+        ],
         [DataCollectionItem(id=r.id, type=r.type, description=r.description) for r in item_rows],
     )
 
@@ -40,8 +43,12 @@ def _validate(criteria: list[EvaluationCriterion], items: list[DataCollectionIte
         if dupes:
             raise InvalidAnalysisConfig(f"Id {label} duplicato: {', '.join(sorted(dupes))}")
     for c in criteria:
-        if not c.prompt.strip():
+        if c.kind not in KINDS:
+            raise InvalidAnalysisConfig(f"Tipo di criterio non valido per {c.id!r}: {c.kind!r}")
+        if c.kind == KIND_LLM and not c.prompt.strip():
             raise InvalidAnalysisConfig(f"Il criterio {c.id!r} non ha una descrizione di cosa significa successo")
+        if c.kind in (KIND_TOOL_USED, KIND_TOOL_NOT_USED) and not [e for e in c.expected if e.strip()]:
+            raise InvalidAnalysisConfig(f"Il criterio {c.id!r} deve indicare almeno un tool")
     for d in items:
         if d.type not in DATA_TYPES:
             raise InvalidAnalysisConfig(f"Tipo non valido per {d.id!r}: {d.type!r}")
@@ -55,10 +62,21 @@ def replace_config(session: Session, criteria: list[EvaluationCriterion], items:
     session.execute(delete(EvaluationCriterionRow))
     session.execute(delete(DataCollectionItemRow))
     for i, c in enumerate(criteria):
-        session.add(EvaluationCriterionRow(id=c.id, name=c.name, prompt=c.prompt, position=i))
+        session.add(criterion_row(c, i))
     for i, d in enumerate(items):
         session.add(DataCollectionItemRow(id=d.id, type=d.type, description=d.description, position=i))
     session.flush()
+
+
+def criterion_row(c: EvaluationCriterion, position: int) -> EvaluationCriterionRow:
+    return EvaluationCriterionRow(
+        id=c.id,
+        name=c.name,
+        prompt=c.prompt,
+        position=position,
+        kind=c.kind,
+        expected_json=json.dumps([e.strip() for e in c.expected if e.strip()]),
+    )
 
 
 def save_analysis(session: Session, call_id: str, result: AnalysisResult) -> CallAnalysisRow:

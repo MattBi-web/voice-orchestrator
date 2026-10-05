@@ -13,12 +13,16 @@ Two ways to judge, chosen by the provider:
 
 - a real LLM provider (Anthropic/OpenAI/Gemini) → one LLM call asked for
   strict JSON, parsed defensively;
-- `FakeProvider` (the zero-API-key default) → a word-overlap heuristic.
-  Same honesty rule as `FakeProvider` itself: it exists so the whole
-  pipeline (storage, UI, stats) runs with no keys, not as a stand-in for
-  judgement. Every heuristic result says in its own rationale exactly what
-  it matched, and the result is tagged `method="heuristic"` so the UI can
-  label it as such instead of passing it off as an evaluation.
+- `FakeProvider` (the zero-API-key default) → no judgement at all for
+  criteria written in natural language: they come back `unknown`, saying a
+  provider is needed. (They used to get a word-overlap score, which gave
+  confident nonsense such as "Agente giusto: fallito" on a correct routing —
+  D11.) Data items still get a word-overlap guess, tagged as such.
+
+Independent of the provider, a criterion can be *structural* (`kind`): a
+fact the transcript records exactly — where the call ended up, which tools
+ran. Those are checked deterministically in both modes, never sent to an
+LLM, so they're the criteria that stay meaningful with zero API keys.
 """
 from __future__ import annotations
 
@@ -45,11 +49,23 @@ _STOPWORDS = {
 }
 
 
+# Criterion kinds (D11). KIND_LLM is judged by a model from `prompt`; the
+# others are checked against the transcript's own structure, with `expected`
+# as their argument.
+KIND_LLM = "llm"
+KIND_FINAL_AGENT = "final_agent"  # call ended on one of `expected` (empty: anywhere but the entry agent)
+KIND_TOOL_USED = "tool_used"  # at least one of `expected` ran
+KIND_TOOL_NOT_USED = "tool_not_used"  # none of `expected` ran
+KINDS = (KIND_LLM, KIND_FINAL_AGENT, KIND_TOOL_USED, KIND_TOOL_NOT_USED)
+
+
 @dataclass
 class EvaluationCriterion:
     id: str
     name: str
     prompt: str  # what "success" means, in plain language
+    kind: str = KIND_LLM
+    expected: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -124,11 +140,16 @@ DEFAULT_CRITERIA = [
     ),
     EvaluationCriterion(
         id="agente_corretto",
-        name="Agente giusto",
-        prompt=(
-            "La chiamata è finita sull'agente specializzato nell'argomento della richiesta "
-            "(per esempio roaming, fatturazione, assistenza tecnica)."
-        ),
+        name="Instradata a uno specialista",
+        prompt="La chiamata è passata dall'agente d'ingresso a un agente specializzato.",
+        kind=KIND_FINAL_AGENT,
+    ),
+    EvaluationCriterion(
+        id="senza_operatore",
+        name="Senza operatore umano",
+        prompt="La chiamata si è chiusa senza passaggio a un operatore umano.",
+        kind=KIND_TOOL_NOT_USED,
+        expected=["transfer_to_human"],
     ),
 ]
 
@@ -165,11 +186,60 @@ def analyze(
             data=[DataCollectionResult(d.id, None, "Nessuna trascrizione da cui estrarre.") for d in data_items],
         )
     if isinstance(provider, FakeProvider):
-        return _heuristic(turns, criteria, data_items)
-    try:
-        return _llm(turns, criteria, data_items, provider)
-    except NotImplementedError:
-        return _heuristic(turns, criteria, data_items)
+        result = _heuristic(turns, criteria, data_items)
+    else:
+        try:
+            result = _llm(turns, [c for c in criteria if c.kind == KIND_LLM], data_items, provider)
+        except NotImplementedError:
+            result = _heuristic(turns, criteria, data_items)
+    # Structural criteria are checked here, the same way whatever the
+    # provider, and slotted back into the configured order.
+    by_id = {r.criterion_id: r for r in result.criteria}
+    result.criteria = [
+        by_id[c.id] if c.kind == KIND_LLM else _structural(turns, c) for c in criteria
+    ]
+    return result
+
+
+# ---- structural (deterministic, any provider) ----
+
+
+def _structural(turns: list[dict[str, Any]], c: EvaluationCriterion) -> CriterionResult:
+    agent_ids = [t.get("agent_id") for t in turns if t.get("speaker") == "agent" and t.get("agent_id")]
+    used = {tool for t in turns for tool in (t.get("tools") or [])}
+    expected = [e for e in c.expected if e]
+    prefix = "Controllo strutturale: "
+
+    if c.kind == KIND_FINAL_AGENT:
+        if not agent_ids:
+            return CriterionResult(c.id, RESULT_UNKNOWN, prefix + "nessuna risposta di agente nella trascrizione.")
+        final = agent_ids[-1]
+        if expected:
+            ok = final in expected
+            return CriterionResult(
+                c.id,
+                RESULT_SUCCESS if ok else RESULT_FAILURE,
+                prefix + f"agente finale {final!r}, attesi: {', '.join(expected)}.",
+            )
+        entry = agent_ids[0]
+        ok = final != entry
+        why = f"passata da {entry!r} a {final!r}." if ok else f"rimasta sull'agente d'ingresso {entry!r}."
+        return CriterionResult(c.id, RESULT_SUCCESS if ok else RESULT_FAILURE, prefix + "chiamata " + why)
+
+    if c.kind in (KIND_TOOL_USED, KIND_TOOL_NOT_USED):
+        hit = sorted(used & set(expected))
+        found = ", ".join(hit) if hit else "nessuno"
+        if c.kind == KIND_TOOL_USED:
+            ok = bool(hit)
+        else:
+            ok = not hit
+        return CriterionResult(
+            c.id,
+            RESULT_SUCCESS if ok else RESULT_FAILURE,
+            prefix + f"tool {', '.join(expected)} — usati in questa chiamata: {found}.",
+        )
+
+    return CriterionResult(c.id, RESULT_UNKNOWN, f"Tipo di criterio sconosciuto: {c.kind!r}.")
 
 
 # ---- heuristic (zero API keys) ----
@@ -182,28 +252,20 @@ def _words(text: str) -> set[str]:
 def _heuristic(
     turns: list[dict[str, Any]], criteria: list[EvaluationCriterion], data_items: list[DataCollectionItem]
 ) -> AnalysisResult:
-    full_text = " ".join(t.get("text", "") for t in turns)
-    full_words = _words(full_text)
     caller_turns = [t for t in turns if t.get("speaker") == "caller"]
 
-    criteria_results = []
-    for c in criteria:
-        matched = sorted(_words(c.prompt) & full_words)
-        if len(matched) >= 2:
-            result = RESULT_SUCCESS
-        elif matched:
-            result = RESULT_UNKNOWN
-        else:
-            result = RESULT_FAILURE
-        found = ", ".join(matched) if matched else "nessuna"
-        criteria_results.append(
-            CriterionResult(
-                c.id,
-                result,
-                f"Euristica, non un giudizio: parole del criterio trovate nella trascrizione: {found} "
-                "(≥2 = success, 1 = unknown, 0 = failure).",
-            )
+    # D11: a natural-language criterion needs a model to judge it. Without
+    # one, "unknown" is the only honest answer — any word-overlap score here
+    # reads as a verdict and is wrong as often as it's right.
+    criteria_results = [
+        CriterionResult(
+            c.id,
+            RESULT_UNKNOWN,
+            "Non valutato: un criterio in linguaggio naturale richiede un provider LLM "
+            "(VOICE_ORCH_PROVIDER). Senza chiavi sono affidabili solo i criteri strutturali.",
         )
+        for c in criteria
+    ]
 
     data_results = []
     for d in data_items:

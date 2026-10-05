@@ -326,9 +326,12 @@ unit, same as a form submit does.
 
 **No duplicated routing logic.** `POST /api/test/route` doesn't reimplement or approximate
 routing — it rebuilds the real `AgentSpec` tree from SQLite and calls the actual
-`orchestrator.handle_turn()` against `FakeProvider`, the same zero-API-key path `chat`/`route`
-use. The UI's "try it" box is exactly as trustworthy as the CLI's `route` command, because it's
-the same code.
+`orchestrator.handle_turn()` — by default against `FakeProvider`, the same zero-API-key path
+`chat`/`route` use, or, with the box's "usa il provider configurato" checkbox, against the provider
+`VOICE_ORCH_PROVIDER` resolves to (`GET /api/llm/status` says which one, and whether a requested
+provider silently fell back to `FakeProvider` for a missing key). Each reply is labelled with the
+provider that actually composed it. The UI's "try it" box is exactly as trustworthy as the CLI's
+`route` command, because it's the same code.
 
 **Running it** (two servers, both local-dev only — the FastAPI app's CORS only allows
 `localhost:5173`, and it has no auth, so don't expose it on the open internet as-is):
@@ -462,10 +465,13 @@ equivalent of ElevenLabs' `evaluation.criteria` + `data_collection`. Criteria an
 edited in the same tab and apply to the whole family, not one agent: a call crosses several agents,
 and it's the call that gets judged. `analysis.py` (core, standard library only) does the judging: with
 a real provider configured it's one LLM call asked for strict JSON, parsed defensively (a garbage reply
-is reported as a failed analysis, not silently replaced); with the zero-key `FakeProvider` it's a
-word-overlap heuristic that states in every rationale exactly what it matched, and the UI labels it
-"euristica, non un giudizio LLM". That heuristic exists so the pipeline runs without keys — its
-verdicts are not an evaluation, and the README says so here too. Results are stored per call in
+is reported as a failed analysis, not silently replaced). A criterion is either written in natural
+language (`kind: llm`, judged by that model) or *structural* — `final_agent`, `tool_used`,
+`tool_not_used` — checked deterministically against the transcript whatever the provider, and never
+sent to the model. With the zero-key `FakeProvider`, natural-language criteria come back `unknown`
+with the reason, not a guessed verdict; the structural ones still give real answers, which is what
+makes the evaluation meaningful in a keyless demo. Data fields fall back to a word-overlap guess,
+labelled as a heuristic. Results are stored per call in
 SQLite (`webapi/analysis_repository.py`) and feed a success-rate tile on the dashboard, computed only
 over calls that were actually analyzed. The working roadmap and gap map against ElevenLabs live in
 [`docs/ROADMAP.md`](docs/ROADMAP.md).

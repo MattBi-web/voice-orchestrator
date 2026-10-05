@@ -32,5 +32,9 @@ class TransferToHumanTool(Tool):
                 "and that everything discussed so far (summarize `handoff_summary` if given) "
                 "has already been passed along so they won't have to repeat themselves."
             ),
+            caller_text=(
+                "Ti passo subito a un collega: gli ho già riassunto quanto ci siamo detti, "
+                "così non dovrai ripetere niente."
+            ),
             data={"transferred": True, "escalated_from": agent.id},
         )

@@ -44,5 +44,9 @@ class CheckAccountStatusTool(Tool):
                 f"due date: {account['due_date']}, status: {account['status']}. "
                 "Answer the caller's question using exactly these figures."
             ),
+            caller_text=(
+                f"Il saldo del tuo conto è di {account['balance_eur']:.2f} euro, "
+                f"con scadenza il {account['due_date']} (stato: {account['status']})."
+            ),
             data=account,
         )

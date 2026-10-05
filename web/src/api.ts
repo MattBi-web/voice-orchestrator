@@ -11,6 +11,7 @@ import type {
   CallStats,
   ExportResult,
   McpServer,
+  LlmStatus,
   TestRouteResult,
   VoiceStatus,
   VoiceToken,
@@ -73,11 +74,17 @@ export const api = {
       body: JSON.stringify(body),
     }),
   listTools: () => request<{ tools: string[] }>('/api/tools'),
-  testRoute: (utterance: string, startAgentId: string | null, channel: string) =>
+  testRoute: (utterance: string, startAgentId: string | null, channel: string, useConfiguredProvider = false) =>
     request<TestRouteResult>('/api/test/route', {
       method: 'POST',
-      body: JSON.stringify({ utterance, start_agent_id: startAgentId, channel }),
+      body: JSON.stringify({
+        utterance,
+        start_agent_id: startAgentId,
+        channel,
+        use_configured_provider: useConfiguredProvider,
+      }),
     }),
+  getLlmStatus: () => request<LlmStatus>('/api/llm/status'),
   getVoiceStatus: () => request<VoiceStatus>('/api/voice/status'),
   getVoiceToken: () => request<VoiceToken>('/api/voice/token', { method: 'POST' }),
   getCallStats: (includeTest: boolean, days = 14) =>

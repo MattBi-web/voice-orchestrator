@@ -26,6 +26,17 @@ from ..state import CallSession
 class ToolResult:
     summary: str  # short, LLM-ready grounding text to fold into the reply
     data: dict[str, Any] = field(default_factory=dict)
+    # What to say to the caller when no LLM composes the reply (FakeProvider)
+    # — D10. `summary` is written *for an LLM* and can be an instruction
+    # ("Tell the caller, briefly…"): fine as grounding, wrong as a reply read
+    # out verbatim. A tool whose summary is plain data (an account balance, a
+    # KB passage) can leave this empty and the summary is used as-is; a tool
+    # whose summary is an instruction sets the caller-facing line here.
+    caller_text: str = ""
+
+    @property
+    def caller_note(self) -> str:
+        return self.caller_text or self.summary
 
 
 class Tool(ABC):

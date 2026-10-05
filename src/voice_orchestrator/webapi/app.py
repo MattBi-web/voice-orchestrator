@@ -24,7 +24,7 @@ from sqlalchemy.orm import Session
 
 from .. import analysis, call_log, config
 from ..agents.registry import save_family
-from ..llm import FakeProvider, get_provider
+from ..llm import FakeProvider, get_provider, get_provider_for_agent
 from ..orchestrator import handle_turn
 from ..state import CallSession
 from ..tools import REGISTRY
@@ -390,13 +390,26 @@ def export_agents(session: Session = Depends(get_session)) -> dict:
     return {"path": str(config.AGENTS_FILE), "agent_count": agent_count}
 
 
+@app.get("/api/llm/status")
+def llm_status() -> dict:
+    """Which provider VOICE_ORCH_PROVIDER asks for, and which one actually
+    resolves. They differ when a real provider is requested but can't be
+    built (missing key, missing SDK): `get_provider()` then falls back to
+    FakeProvider silently, and the try-it box should say so rather than let
+    the user believe they're testing the real model (D3)."""
+    resolved = type(get_provider()).__name__
+    return {"requested": config.PROVIDER, "resolved": resolved, "real": resolved != "FakeProvider"}
+
+
 @app.post("/api/test/route", response_model=TestRouteResponse)
 def test_route(body: TestRouteRequest, session: Session = Depends(get_session)) -> TestRouteResponse:
     """Builds the DB-backed family into a real AgentSpec tree and runs the
-    utterance through the *actual* orchestrator with FakeProvider — the
-    same zero-API-key path `voice-orchestrator chat`/`route` use, so this
-    "try it" box never needs a real LLM key to be useful for checking that
-    routing/tools behave as the editor intended."""
+    utterance through the *actual* orchestrator. By default with
+    FakeProvider — the same zero-API-key path `voice-orchestrator chat`/
+    `route` use, enough to check routing/tools. With
+    `use_configured_provider` (D3), with the configured provider instead, so
+    the reply is the one a real call would get; a provider error (bad key,
+    network) comes back as a 502 with its message, not a bare 500."""
     root = repository.build_tree(session)
     if root is None:
         raise HTTPException(400, "No agents yet — create a root agent first")
@@ -409,7 +422,13 @@ def test_route(body: TestRouteRequest, session: Session = Depends(get_session)) 
     call_session.agent_path = [a.id for a in _path_to(root, start.id)]
 
     started_at = datetime.now(timezone.utc)
-    result = handle_turn(call_session, root, body.utterance, FakeProvider())
+    provider = get_provider() if body.use_configured_provider else FakeProvider()
+    try:
+        result = handle_turn(call_session, root, body.utterance, provider)
+    except Exception as exc:
+        if isinstance(provider, FakeProvider):
+            raise
+        raise HTTPException(502, f"{type(provider).__name__}: {exc}") from exc
     # Tagged "route_test" (not "chat"/"voice") so the dashboard can tell a
     # single-turn routing check apart from an actual conversation — same
     # record shape, just a different source label.
@@ -422,6 +441,7 @@ def test_route(body: TestRouteRequest, session: Session = Depends(get_session)) 
         handed_off=result.handed_off,
         reply=result.reply,
         tool_ids_used=result.tool_ids_used,
+        provider=type(get_provider_for_agent(result.agent, default=provider)).__name__,
     )
 
 
@@ -531,7 +551,9 @@ def analyze_call(call_id: str, session: Session = Depends(get_session)) -> dict:
 def get_analysis_config(session: Session = Depends(get_session)) -> AnalysisConfigSchema:
     criteria, items = analysis_repository.get_config(session)
     return AnalysisConfigSchema(
-        criteria=[CriterionSchema(id=c.id, name=c.name, prompt=c.prompt) for c in criteria],
+        criteria=[
+            CriterionSchema(id=c.id, name=c.name, prompt=c.prompt, kind=c.kind, expected=c.expected) for c in criteria
+        ],
         data_items=[DataItemSchema(id=d.id, type=d.type, description=d.description) for d in items],
     )
 
@@ -541,7 +563,16 @@ def put_analysis_config(body: AnalysisConfigSchema, session: Session = Depends(g
     try:
         analysis_repository.replace_config(
             session,
-            [analysis.EvaluationCriterion(id=c.id.strip(), name=c.name.strip() or c.id.strip(), prompt=c.prompt) for c in body.criteria],
+            [
+                analysis.EvaluationCriterion(
+                    id=c.id.strip(),
+                    name=c.name.strip() or c.id.strip(),
+                    prompt=c.prompt,
+                    kind=c.kind,
+                    expected=c.expected,
+                )
+                for c in body.criteria
+            ],
             [analysis.DataCollectionItem(id=d.id.strip(), type=d.type, description=d.description) for d in body.data_items],
         )
     except analysis_repository.InvalidAnalysisConfig as exc:

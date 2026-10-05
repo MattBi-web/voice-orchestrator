@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import type { Agent, TestRouteResult } from '../types'
+import { useEffect, useState } from 'react'
+import type { Agent, LlmStatus, TestRouteResult } from '../types'
 import { api, ApiError } from '../api'
 import { flatten } from '../tree'
 
@@ -18,6 +18,20 @@ export function TestBox({ root }: Props) {
   const [result, setResult] = useState<TestRouteResult | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [llm, setLlm] = useState<LlmStatus | null>(null)
+  // D3: default to the real model whenever one is configured — the try-it
+  // box should show the replies a real call gets, not FakeProvider's echo.
+  const [useConfigured, setUseConfigured] = useState(false)
+
+  useEffect(() => {
+    api
+      .getLlmStatus()
+      .then((s) => {
+        setLlm(s)
+        setUseConfigured(s.real)
+      })
+      .catch(() => setLlm(null))
+  }, [])
 
   const flat = flatten(root)
 
@@ -28,7 +42,7 @@ export function TestBox({ root }: Props) {
     setLoading(true)
     setResult(null)
     try {
-      const res = await api.testRoute(utterance, startAgentId || null, channel)
+      const res = await api.testRoute(utterance, startAgentId || null, channel, useConfigured)
       setResult(res)
     } catch (err) {
       setError(err instanceof ApiError ? err.message : String(err))
@@ -71,6 +85,27 @@ export function TestBox({ root }: Props) {
             </select>
           </div>
         </div>
+        <label className="test-box__provider">
+          <input
+            type="checkbox"
+            checked={useConfigured}
+            disabled={!llm?.real}
+            onChange={(e) => setUseConfigured(e.target.checked)}
+          />
+          {llm?.real ? (
+            <>
+              Usa il provider configurato (<code>{llm.resolved}</code>)
+            </>
+          ) : llm && llm.requested !== 'fake' ? (
+            <>
+              Provider <code>{llm.requested}</code> richiesto ma non disponibile (chiave mancante?): si usa FakeProvider
+            </>
+          ) : (
+            <>
+              Nessun provider configurato (<code>VOICE_ORCH_PROVIDER</code>): risposte di FakeProvider
+            </>
+          )}
+        </label>
         <button type="submit" disabled={loading || !root}>
           {loading ? 'Routing…' : 'Send'}
         </button>
@@ -93,6 +128,11 @@ export function TestBox({ root }: Props) {
             <dd>{result.handed_off ? 'yes' : 'no'}</dd>
             <dt>Tools used</dt>
             <dd>{result.tool_ids_used.join(', ') || '—'}</dd>
+            <dt>Provider</dt>
+            <dd>
+              <code>{result.provider}</code>
+              {result.provider === 'FakeProvider' && ' — risposta simulata, non quella di un modello vero'}
+            </dd>
             <dt>Reply</dt>
             <dd className="test-result__reply">{result.reply}</dd>
           </dl>

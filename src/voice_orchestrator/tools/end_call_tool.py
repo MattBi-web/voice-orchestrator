@@ -38,5 +38,6 @@ class EndCallTool(Tool):
                 "The caller has nothing further. Say a brief, warm goodbye and nothing else — "
                 "don't ask another question, don't offer more help."
             ),
+            caller_text="Grazie per aver chiamato, buona giornata!",
             data={"call_ended": True},
         )

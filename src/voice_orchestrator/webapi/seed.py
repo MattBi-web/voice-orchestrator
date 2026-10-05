@@ -20,6 +20,7 @@ from ..agents.registry import AgentSpec, load_family
 from ..analysis import DEFAULT_CRITERIA, DEFAULT_DATA_ITEMS
 from ..tools.mcp_tool import read_raw_server_entries
 from ..tools.webhook_tool import read_raw_entries as read_raw_webhook_entries
+from . import analysis_repository
 from .models import AgentRow, AppMetaRow, DataCollectionItemRow, EvaluationCriterionRow, McpServerRow, WebhookToolRow
 
 
@@ -134,7 +135,7 @@ def seed_analysis_if_empty(session: Session) -> bool:
     if _already_seeded(session, "analysis_config_seeded"):
         return False
     for i, c in enumerate(DEFAULT_CRITERIA):
-        session.add(EvaluationCriterionRow(id=c.id, name=c.name, prompt=c.prompt, position=i))
+        session.add(analysis_repository.criterion_row(c, i))
     for i, d in enumerate(DEFAULT_DATA_ITEMS):
         session.add(DataCollectionItemRow(id=d.id, type=d.type, description=d.description, position=i))
     _mark_seeded(session, "analysis_config_seeded")

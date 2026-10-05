@@ -57,6 +57,12 @@ class WebhookParam:
     type: str = "string"  # "string" | "number" | "boolean" — coercion only, not strict validation
 
 
+# D10: what FakeProvider reads out when the webhook can't produce data — the
+# LLM-facing summaries in WebhookTool.run() carry the error detail and an instruction, not
+# something to say verbatim.
+_UNAVAILABLE = "Questo servizio al momento non è disponibile, riprova tra poco."
+
+
 @dataclass
 class WebhookToolConfig:
     """`name` is the tool id suffix — registered as "webhook:<name>", same
@@ -173,7 +179,8 @@ class WebhookTool(Tool):
                     f"Webhook tool '{cfg.name}' is misconfigured: the server environment variable "
                     f"{exc} is not set. Tell the caller this feature is temporarily unavailable; "
                     "don't invent a result."
-                )
+                ),
+                caller_text=_UNAVAILABLE,
             )
 
         params = _build_params(cfg.params, session)
@@ -203,6 +210,9 @@ class WebhookTool(Tool):
                 )
             return ToolResult(
                 summary=summary,
+                caller_text=(
+                    f"[webhook:{cfg.name}] risposta {response.status_code}: {body_preview}" if ok else _UNAVAILABLE
+                ),
                 data={"status_code": response.status_code, "body": body_preview},
             )
         except httpx.HTTPError as exc:
@@ -212,7 +222,8 @@ class WebhookTool(Tool):
                 summary=(
                     f"Webhook tool '{cfg.name}' failed to reach {cfg.url}: {exc}. "
                     "Tell the caller this feature is temporarily unavailable; don't invent a result."
-                )
+                ),
+                caller_text=_UNAVAILABLE,
             )
 
 

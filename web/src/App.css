@@ -288,6 +288,18 @@
   gap: 12px;
 }
 
+.test-box__provider {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0 12px;
+  font-size: 13px;
+}
+
+.test-box__provider input {
+  width: auto;
+}
+
 .test-box__row .field {
   flex: 1;
 }
@@ -897,6 +909,7 @@
 .analysis-config__cols {
   display: flex;
   gap: 6px;
+  flex-wrap: wrap;
 }
 
 .analysis-config__cols input,

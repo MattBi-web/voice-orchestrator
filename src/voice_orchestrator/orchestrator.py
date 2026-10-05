@@ -61,6 +61,7 @@ def handle_turn(session: CallSession, root: AgentSpec, utterance: str, provider:
         current = target
 
     tool_notes: list[str] = []
+    caller_notes: list[str] = []
     tool_ids_used: list[str] = []
     gate_context = session.gate_context()
     for binding in current.tools:
@@ -81,6 +82,7 @@ def handle_turn(session: CallSession, root: AgentSpec, utterance: str, provider:
         if tool.should_trigger(current, utterance, session):
             result = tool.run(current, utterance, session)
             tool_notes.append(result.summary)
+            caller_notes.append(result.caller_note)
             tool_ids_used.append(binding.id)
             session.record_event(
                 observability.COMPONENT_TOOL,
@@ -103,6 +105,7 @@ def handle_turn(session: CallSession, root: AgentSpec, utterance: str, provider:
         recent_turns=session.last_turns(2),
         tool_notes=tool_notes,
         temperature=current.llm_temperature,
+        caller_notes=caller_notes,
     )
     session.add_turn("agent", reply, agent_id=current.id)
 

@@ -16,3 +16,7 @@ data/call_log.jsonl
 web/node_modules/
 web/dist/
 .env.save
+# Blocco 3's webhook execution log — local history, same as call_log.jsonl.
+data/webhook_log.jsonl
+# Scratch folder for files the assistant moved aside instead of deleting.
+_to_delete/

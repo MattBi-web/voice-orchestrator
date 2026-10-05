@@ -1,8 +1,25 @@
 import { useEffect, useState } from 'react'
-import type { AnalysisConfig, DataItemType } from '../types'
+import type { AnalysisConfig, Criterion, CriterionKind, DataItemType } from '../types'
 import { api, ApiError } from '../api'
 
 const TYPES: DataItemType[] = ['string', 'boolean', 'integer', 'number']
+
+const KINDS: { value: CriterionKind; label: string; expectedHint: string }[] = [
+  { value: 'llm', label: 'Giudicato da LLM', expectedHint: '' },
+  {
+    value: 'final_agent',
+    label: 'Agente finale',
+    expectedHint: "id agenti attesi, separati da virgola (vuoto = qualsiasi agente diverso da quello d'ingresso)",
+  },
+  { value: 'tool_used', label: 'Tool usato', expectedHint: 'id tool, separati da virgola (basta uno)' },
+  { value: 'tool_not_used', label: 'Tool non usato', expectedHint: 'id tool, separati da virgola (nessuno deve comparire)' },
+]
+
+const splitIds = (raw: string) =>
+  raw
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
 
 /** Family-wide success criteria + data-collection fields, edited and saved
  * as one unit (PUT /api/analysis/config). Saving doesn't touch analyses
@@ -27,6 +44,9 @@ export function AnalysisConfigEditor() {
     setSaved(false)
   }
 
+  const patchCriterion = (i: number, change: Partial<Criterion>) =>
+    patch({ ...cfg, criteria: cfg.criteria.map((x, j) => (j === i ? { ...x, ...change } : x)) })
+
   const save = async (e: React.FormEvent) => {
     e.preventDefault()
     setSaving(true)
@@ -47,6 +67,11 @@ export function AnalysisConfigEditor() {
         Valgono per tutta la famiglia di agenti, non per un singolo agente: una chiamata passa da più agenti ed è la
         chiamata intera che si valuta. Modificarli non cambia le analisi già fatte: usa "Rianalizza" su una chiamata
         per rivalutarla.
+      </p>
+      <p className="mcp-panel__hint">
+        I criteri "Giudicato da LLM" richiedono un provider configurato: senza chiavi restano <em>unknown</em>. Gli
+        altri tipi (agente finale, tool usato/non usato) sono controlli strutturali sulla trascrizione: danno un
+        verdetto affidabile anche senza chiavi.
       </p>
       {error && <p className="error">{error}</p>}
 
@@ -69,6 +94,17 @@ export function AnalysisConfigEditor() {
                 patch({ ...cfg, criteria: cfg.criteria.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)) })
               }
             />
+            <select
+              aria-label={`Tipo del criterio ${c.id}`}
+              value={c.kind}
+              onChange={(e) => patchCriterion(i, { kind: e.target.value as CriterionKind })}
+            >
+              {KINDS.map((k) => (
+                <option key={k.value} value={k.value}>
+                  {k.label}
+                </option>
+              ))}
+            </select>
             <button
               type="button"
               className="btn-icon"
@@ -78,10 +114,26 @@ export function AnalysisConfigEditor() {
               ×
             </button>
           </div>
+          {c.kind !== 'llm' && (
+            <input
+              // Uncontrolled (committed on blur, so "a, b" can be typed
+              // freely): the key remounts it whenever the saved list or the
+              // row's position changes, so it never shows a stale value.
+              key={`expected-${i}-${c.expected.join(',')}`}
+              required={c.kind !== 'final_agent'}
+              placeholder={KINDS.find((k) => k.value === c.kind)?.expectedHint}
+              defaultValue={c.expected.join(', ')}
+              onBlur={(e) => patchCriterion(i, { expected: splitIds(e.target.value) })}
+            />
+          )}
           <textarea
-            required
+            required={c.kind === 'llm'}
             rows={2}
-            placeholder="Cosa significa successo, in linguaggio naturale"
+            placeholder={
+              c.kind === 'llm'
+                ? 'Cosa significa successo, in linguaggio naturale'
+                : 'Descrizione (facoltativa: il controllo è strutturale)'
+            }
             value={c.prompt}
             onChange={(e) =>
               patch({ ...cfg, criteria: cfg.criteria.map((x, j) => (j === i ? { ...x, prompt: e.target.value } : x)) })
@@ -92,7 +144,7 @@ export function AnalysisConfigEditor() {
       <button
         type="button"
         className="btn-link"
-        onClick={() => patch({ ...cfg, criteria: [...cfg.criteria, { id: '', name: '', prompt: '' }] })}
+        onClick={() => patch({ ...cfg, criteria: [...cfg.criteria, { id: '', name: '', prompt: '', kind: 'llm', expected: [] }] })}
       >
         + aggiungi criterio
       </button>

@@ -51,7 +51,13 @@ class LLMProvider(ABC):
         recent_turns: list[Turn],
         tool_notes: list[str],
         temperature: float | None = None,
-    ) -> str: ...
+        caller_notes: list[str] | None = None,
+    ) -> str:
+        """`tool_notes` are the tools' LLM-facing summaries (grounding, possibly
+        instructions); `caller_notes` the same results phrased for the caller
+        (ToolResult.caller_note). A real model reads the former and writes its
+        own reply; only FakeProvider, which can't, uses the latter (D10)."""
+        ...
 
     @abstractmethod
     def summarize(self, previous_summary: str, turns: list[Turn]) -> str: ...
@@ -97,12 +103,17 @@ class FakeProvider(LLMProvider):
         recent_turns: list[Turn],
         tool_notes: list[str],
         temperature: float | None = None,
+        caller_notes: list[str] | None = None,
     ) -> str:
         # No real model underneath, so temperature is accepted (same
         # signature as every other provider) but has nothing to act on —
         # FakeProvider is deterministic by design.
-        if tool_notes:
-            return f"[{agent.name}] " + " ".join(tool_notes)
+        # D10: read the caller-facing notes, never the LLM-facing ones —
+        # those can be instructions ("Tell the caller, briefly…") that would
+        # otherwise end up spoken/transcribed as the reply itself.
+        notes = caller_notes if caller_notes is not None else tool_notes
+        if notes:
+            return f"[{agent.name}] " + " ".join(notes)
         return f"[{agent.name}] Ho capito: «hai detto '{utterance.strip()}'» — come posso aiutarti su questo?"
 
     def summarize(self, previous_summary: str, turns: list[Turn]) -> str:
@@ -154,6 +165,7 @@ class AnthropicProvider(LLMProvider):
         recent_turns: list[Turn],
         tool_notes: list[str],
         temperature: float | None = None,
+        caller_notes: list[str] | None = None,
     ) -> str:
         system = agent.system_prompt or f"You are {agent.name}, a helpful phone agent."
         context = f"Conversation so far: {context_summary}\n\n" if context_summary else ""
@@ -201,7 +213,7 @@ class OpenAIProvider(LLMProvider):
         ids = {a.id for a in candidates}
         return reply if reply in ids or reply == STAY else STAY
 
-    def respond(self, agent, utterance, context_summary, recent_turns, tool_notes, temperature=None) -> str:
+    def respond(self, agent, utterance, context_summary, recent_turns, tool_notes, temperature=None, caller_notes=None) -> str:
         system = agent.system_prompt or f"You are {agent.name}, a helpful phone agent."
         context = f"Conversation so far: {context_summary}\n\n" if context_summary else ""
         if tool_notes:
@@ -243,7 +255,7 @@ class GeminiProvider(LLMProvider):
         ids = {a.id for a in candidates}
         return reply if reply in ids or reply == STAY else STAY
 
-    def respond(self, agent, utterance, context_summary, recent_turns, tool_notes, temperature=None) -> str:
+    def respond(self, agent, utterance, context_summary, recent_turns, tool_notes, temperature=None, caller_notes=None) -> str:
         system = agent.system_prompt or f"You are {agent.name}, a helpful phone agent."
         context = f"Conversation so far: {context_summary}\n\n" if context_summary else ""
         if tool_notes:

@@ -52,20 +52,19 @@ class _NoCompletion(_StubLLM):
         return LLMProvider.complete(self, system, user, max_tokens)
 
 
-def test_heuristic_is_deterministic_and_says_what_it_matched():
+def test_heuristic_does_not_judge_natural_language_criteria():
+    """D11: without a model, a criterion written in prose is `unknown` (and
+    says why) — no more word-overlap verdicts like "Agente giusto: fallito"."""
     result = analyze(TURNS, CRITERIA, DATA, FakeProvider())
     assert result.method == "heuristic"
-    by_id = {c.criterion_id: c for c in result.criteria}
-    assert by_id["passato_operatore"].result == "success"
-    assert "operatore" in by_id["passato_operatore"].rationale
-    assert by_id["meteo"].result == "failure"
-    assert "Euristica" in by_id["meteo"].rationale
+    assert all(c.result == "unknown" for c in result.criteria)
+    assert all("provider LLM" in c.rationale for c in result.criteria)
 
     data = {d.item_id: d.value for d in result.data}
     assert data["vuole_operatore"] is True
     assert data["importo"] == 45.0
     assert data["motivo"].startswith("voglio parlare")
-    assert result.call_successful == "failure"  # one criterion failed
+    assert result.call_successful == "unknown"
 
 
 def test_empty_transcript_is_unknown_not_a_crash():
@@ -128,5 +127,62 @@ def test_as_dict_from_dict_round_trip():
 
 
 def test_defaults_are_well_formed():
-    assert {c.id for c in analysis.DEFAULT_CRITERIA} == {"richiesta_risolta", "agente_corretto"}
+    assert [c.id for c in analysis.DEFAULT_CRITERIA] == ["richiesta_risolta", "agente_corretto", "senza_operatore"]
+    assert all(c.kind in analysis.KINDS for c in analysis.DEFAULT_CRITERIA)
     assert all(d.type in analysis.DATA_TYPES for d in analysis.DEFAULT_DATA_ITEMS)
+
+
+# ---- D11: structural criteria ----
+
+ROUTED = [
+    {"speaker": "caller", "text": "il wifi non va", "agent_id": None},
+    {"speaker": "agent", "text": "ti passo al tecnico", "agent_id": "router"},
+    {"speaker": "caller", "text": "ok", "agent_id": None},
+    {"speaker": "agent", "text": "riavvia il modem", "agent_id": "tech_support", "tools": ["knowledge_lookup"]},
+]
+
+
+def _crit(kind, expected=()):
+    return EvaluationCriterion(id="c", name="c", prompt="", kind=kind, expected=list(expected))
+
+
+def _one(turns, criterion, provider=None):
+    return analyze(turns, [criterion], [], provider or FakeProvider()).criteria[0]
+
+
+def test_final_agent_without_expected_means_left_the_entry_agent():
+    assert _one(ROUTED, _crit(analysis.KIND_FINAL_AGENT)).result == "success"
+    stayed = [t if t.get("agent_id") is None else {**t, "agent_id": "router"} for t in ROUTED]
+    r = _one(stayed, _crit(analysis.KIND_FINAL_AGENT))
+    assert r.result == "failure" and "router" in r.rationale
+
+
+def test_final_agent_with_expected_ids():
+    assert _one(ROUTED, _crit(analysis.KIND_FINAL_AGENT, ["tech_support", "tech_internet"])).result == "success"
+    assert _one(ROUTED, _crit(analysis.KIND_FINAL_AGENT, ["billing"])).result == "failure"
+
+
+def test_tool_used_and_not_used():
+    assert _one(ROUTED, _crit(analysis.KIND_TOOL_USED, ["knowledge_lookup"])).result == "success"
+    assert _one(ROUTED, _crit(analysis.KIND_TOOL_NOT_USED, ["knowledge_lookup"])).result == "failure"
+    assert _one(TURNS, _crit(analysis.KIND_TOOL_NOT_USED, ["transfer_to_human"])).result == "failure"
+    assert _one(ROUTED, _crit(analysis.KIND_TOOL_NOT_USED, ["transfer_to_human"])).result == "success"
+
+
+def test_structural_criteria_never_reach_the_llm_and_keep_their_order():
+    stub = _StubLLM('{"summary": "s", "criteria": [{"id": "giudicato", "result": "success", "rationale": "r"}], "data": []}')
+    criteria = [
+        EvaluationCriterion(id="strutturale", name="s", prompt="", kind=analysis.KIND_FINAL_AGENT),
+        EvaluationCriterion(id="giudicato", name="g", prompt="Il chiamante è soddisfatto."),
+    ]
+    result = analyze(ROUTED, criteria, [], stub)
+    assert [c.criterion_id for c in result.criteria] == ["strutturale", "giudicato"]
+    assert [c.result for c in result.criteria] == ["success", "success"]
+    _, user = stub.calls[0]
+    assert "strutturale" not in user and "giudicato" in user
+
+
+def test_default_criteria_without_keys_give_real_verdicts_on_structure():
+    result = analyze(ROUTED, analysis.DEFAULT_CRITERIA, [], FakeProvider())
+    by_id = {c.criterion_id: c.result for c in result.criteria}
+    assert by_id == {"richiesta_risolta": "unknown", "agente_corretto": "success", "senza_operatore": "success"}

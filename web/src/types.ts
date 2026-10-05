@@ -80,6 +80,14 @@ export interface TestRouteResult {
   handed_off: boolean
   reply: string
   tool_ids_used: string[]
+  /** Class name of the provider that composed `reply` (after per-agent overrides). */
+  provider: string
+}
+
+export interface LlmStatus {
+  requested: string
+  resolved: string
+  real: boolean
 }
 
 export interface VoiceStatus {
@@ -227,10 +235,16 @@ export interface CallDetail extends CallRecord {
 
 export type DataItemType = 'string' | 'boolean' | 'integer' | 'number'
 
+/** D11: `llm` is judged by a model from `prompt`; the others are checked
+ * against the transcript's structure, with `expected` as their argument. */
+export type CriterionKind = 'llm' | 'final_agent' | 'tool_used' | 'tool_not_used'
+
 export interface Criterion {
   id: string
   name: string
   prompt: string
+  kind: CriterionKind
+  expected: string[]
 }
 
 export interface DataItem {

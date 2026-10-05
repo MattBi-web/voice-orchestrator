@@ -54,7 +54,10 @@ class KnowledgeLookupTool(Tool):
     def run(self, agent: AgentSpec, utterance: str, session: CallSession, top_k: int = 2) -> ToolResult:
         retriever, passages = _load_index(tuple(agent.knowledge))
         if not passages:
-            return ToolResult(summary="No knowledge base configured for this agent.")
+            return ToolResult(
+                summary="No knowledge base configured for this agent.",
+                caller_text="Su questo non ho informazioni a disposizione.",
+            )
 
         query_tokens = _tokenize(utterance)
         k = min(top_k, len(passages))
@@ -64,5 +67,8 @@ class KnowledgeLookupTool(Tool):
         joined = "\n\n---\n\n".join(top_passages)
         return ToolResult(
             summary=f"Grounding passages from {agent.name}'s knowledge base:\n\n{joined}",
+            # FakeProvider has no model to paraphrase with: the single best
+            # passage, verbatim, is the honest stand-in for a grounded answer.
+            caller_text=top_passages[0] if top_passages else "",
             data={"passages": top_passages},
         )
