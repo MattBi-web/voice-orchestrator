@@ -3,7 +3,7 @@
 Documento di lavoro: tiene traccia di dove siamo, dove vogliamo arrivare e perché.
 Si aggiorna a ogni feature, nello stesso commit del codice.
 
-Ultimo aggiornamento: 2026-10-05 (D9 + D12)
+Ultimo aggiornamento: 2026-10-05 (piano blocco 6)
 
 ---
 
@@ -185,6 +185,66 @@ CAI e alla tesi sulle sales force) e senza trascrizioni salvate nessuna analisi 
 - [x] Form agente: i file di knowledge sono checkbox sui documenti esistenti, non più
       nomi a testo libero (un refuso falliva in silenzio).
 
+### Blocco 6 — Piattaforma online (Render, due servizi + Postgres)  ⏳ pianificato
+
+Perché: oggi il progetto si prova solo in locale. Su Render gira solo il worker vocale, un
+background worker senza URL, quindi non lo si può nemmeno chiamare senza un client esterno come
+l'Agents Playground di LiveKit. L'obiettivo è il ciclo base della sezione 1 **online**: creo e
+orchestro gli agenti dal builder, li provo in voce dal browser, e quello che salvo risponde subito
+alle chiamate vere. Poi vedo conversazioni, analisi e dashboard.
+
+Cosa è e cosa non è: una piattaforma **single-owner** online. Non è multi-tenant (account,
+workspace, agenti isolati per cliente, billing per cliente), che resta escluso, vedi sotto. Lo
+schema però va pensato in modo che aggiungere un `workspace_id` più avanti sia un'estensione e non
+una riscrittura.
+
+Topologia scelta (vedi log decisioni): **web service + worker + Postgres gestito**, non un servizio
+unico con disco condiviso.
+
+| Servizio Render | Piano | Costo/mese (listino ott. 2026) |
+|---|---|---|
+| Web service (FastAPI + frontend compilato) | Starter, 512 MB | $7 |
+| Background worker (LiveKit) | Standard, 2 GB (sotto va in OOM, D7) | $25 |
+| Postgres | base (256 MB) | $6 + spazio |
+| **Totale** | | **~$38–40** (oggi $25, solo il worker) |
+
+- [ ] **DB configurabile.** `webapi/db.py` legge `DATABASE_URL`: Postgres su Render, SQLite in
+      locale e nei test (default invariato). `sync_columns()` (D15) va verificato o adattato su
+      Postgres: tipi, `ALTER TABLE`, nessun `DROP COLUMN` silenzioso su dati veri. Test della suite
+      anche contro Postgres, se disponibile in locale (Docker o Postgres.app).
+- [ ] **Dati condivisi nel DB, non su file.** Web e worker sono macchine diverse e non condividono
+      il disco. Vanno nel DB: il call log (oggi `data/call_log.jsonl`), le analisi (già in DB), il
+      log dei webhook (oggi JSONL), il contenuto dei documenti di knowledge (oggi file in
+      `data/knowledge/`, D16) e il contatore dei minuti di `usage_guard` (oggi file JSON).
+      Vincolo da non rompere: il **core** (CLI, `orchestrator.py`, worker) resta importabile senza
+      `fastapi`/`sqlalchemy` (vedi le decisioni su `call_log.py`). Strada probabile: interfacce di
+      storage nel core con un'implementazione su file (default, CLI e test) e una su DB, selezionata
+      da configurazione.
+- [ ] **Il worker legge la famiglia dal DB** a ogni chiamata, invece di `config/agents.yaml`: quello
+      che salvo nel builder è subito "in onda". Chiude D4. `agents.yaml` resta il seed iniziale e
+      l'export manuale resta utile per la CLI.
+- [ ] **Un solo web service.** FastAPI serve anche `web/dist`: niente Vite in produzione, niente CORS
+      tra domini.
+- [ ] **Accesso.** Login owner con password da variabile d'ambiente (sessione via cookie firmato). I
+      visitatori senza login vedono tutto in sola lettura: builder, knowledge base, conversazioni,
+      dashboard. Il test vocale è aperto a tutti ma dentro il tetto giornaliero di minuti già
+      esistente; da valutare un limite per visitatore, per esempio per IP. Ogni endpoint che scrive
+      richiede la sessione owner, con test dedicati: un visitatore che prova a scrivere riceve 401.
+- [ ] **`render.yaml` (Blueprint)** che crea web, worker e database in un passo, con le variabili
+      d'ambiente dichiarate: chiavi LiveKit/Deepgram/ElevenLabs, password owner, `DATABASE_URL`
+      collegato al DB. **Il deploy lo lancia Matteo**: chiedere conferma prima.
+- [ ] **Verifica online.** Dopo il deploy: login, una modifica nel builder, una chiamata dal tab
+      "Test live (voce)" che usa la modifica, la chiamata visibile in Conversazioni.
+      `scripts/d12_room_e2e.py` contro il worker deployato richiede la sua dispatch: il worker di
+      produzione usa la dispatch automatica, quello locale `agent_name`.
+
+Lavorare in 2–3 commit verificabili (per esempio: 1. DB configurabile e dati condivisi; 2. worker
+dal DB e web service unico; 3. accesso e `render.yaml`), test verdi a ogni commit, questa sezione
+aggiornata nello stesso commit del codice.
+
+Si apre in seguito, non in questo blocco: multi-tenant (`workspace_id` su ogni tabella, account,
+inviti), limiti e costi per workspace, più worker in parallelo.
+
 ### Escluso di proposito (per ora)
 
 Telefonia (numeri, SIP, batch outbound), widget embeddabile, versioning con branch/merge,
@@ -231,6 +291,8 @@ infrastruttura che nessuna rifinitura della UI chiude.
 | 2026-10 | LLM per agente: `classify()` resta sempre sul provider di default della chiamata, solo `respond()` guarda l'override dell'agente | il routing deve restare economico/deterministico; far scegliere il modello di classificazione all'agente di destinazione avrebbe reso il costo di una chiamata dipendente da dove finisce, non da come inizia |
 | 2026-10 | D12: un `RouterLLM` segnaposto sull'agente invece di togliere l'override di `llm_node` | `livekit-agents` decide *se* rispondere guardando che ci sia un LLM, non che venga usato: il segnaposto soddisfa quella regola senza cambiare chi risponde davvero (il router), e `chat()` che solleva è la prova che nessuno lo chiama |
 | 2026-10 | D12: verifica vocale con dispatch esplicito (`agent_name`) verso un worker locale | il worker deployato su Render è registrato sullo stesso progetto LiveKit: con la dispatch automatica una stanza di test poteva finire a lui, con il codice vecchio |
+| 2026-10 | Blocco 6: due servizi Render (web + worker) con Postgres gestito, non un servizio unico con disco condiviso (~$38–40/mese contro ~$25) | un servizio unico costa come oggi ma lega worker e builder allo stesso disco, una scorciatoia da smontare appena servono più worker o più utenti (un servizio Render con disco non scala oltre un'istanza). Il lavoro in più (dati condivisi nel DB, worker che legge dal DB) è quello che una piattaforma richiede comunque |
+| 2026-10 | Blocco 6: accesso "owner con password + visitatori in sola lettura", non multi-utente | per un portfolio conta che il ciclo base funzioni dal vivo e sia linkabile; account e workspace sono il salto multi-tenant, rimandato |
 | 2026-10 | D9: code-splitting per tab con `React.lazy`, non `manualChunks` | le due dipendenze pesanti servono ognuna a una sola tab: caricarle all'apertura di quella tab toglie il costo dal primo caricamento, mentre dividere i vendor in chunk separati lo avrebbe solo spezzato |
 | 2026-10 | Voce per agente via `tts_node()` override (scambio di `self._tts`), poi sostituito in D12 da `update_options(tts=...)`; non via il multi-agent handoff pattern di LiveKit (un'istanza `Agent` per sotto-agente) | l'architettura usa già un `OrchestratorAgent` unico per tutta la chiamata (il router interno gestisce gli handoff, non LiveKit) — cambiarlo per la sola voce avrebbe significato riscrivere il modello della chiamata per un singolo campo |
 | 2026-10 | Il grafo (blocco 4) mostra solo archi genitore→figlio (sempre veri) + archi tratteggiati verso nodi virtuali per i tool di uscita (`transfer_to_human`/`end_call`), non un grafo di stato libero come il `workflow` di ElevenLabs | `routing/router.py` guarda solo in basso nell'albero — un grafo più "ricco" mentirebbe su come funziona davvero il routing |
@@ -264,4 +326,5 @@ infrastruttura che nessuna rifinitura della UI chiude.
 | `1b6e10d` | Blocco 3: tool webhook HTTP (URL/metodo/header/parametri, secrets via variabile d'ambiente, log esecuzioni) — risolve anche D5 |
 | `a0e9dde` | D3 (try-it sul provider configurato), D10 (testo per il chiamante separato dall'istruzione per l'LLM), D11 (criteri strutturali, niente verdetti euristici sui criteri in linguaggio naturale), D15 (`sync_columns()`: un DB locale vecchio torna ad aprirsi) |
 | `8df57c3` | Blocco 5: knowledge base da UI (documenti da testo/file/URL, vista dei chunk, anteprima del retrieval, picker nel form agente; ricerca condivisa con il tool, cache invalidata alla modifica, chunk a punteggio 0 scartati) |
-| (questo commit) | D9 (tab caricate su richiesta: chunk iniziale 1.172 → 261 kB) + D12 (voce per agente e chiusura dopo il saluto verificate su una chiamata LiveKit reale; corretti due bug che rompevano ogni chiamata vera: nessuna risposta senza LLM configurato, chiave ElevenLabs col nome sbagliato) |
+| `8a429cb` | D9 (tab caricate su richiesta: chunk iniziale 1.172 → 261 kB) + D12 (voce per agente e chiusura dopo il saluto verificate su una chiamata LiveKit reale; corretti due bug che rompevano ogni chiamata vera: nessuna risposta senza LLM configurato, chiave ElevenLabs col nome sbagliato) |
+| (questo commit) | Piano del blocco 6 (piattaforma online: web + worker + Postgres su Render) aggiunto alla roadmap, nessun cambio di codice |
