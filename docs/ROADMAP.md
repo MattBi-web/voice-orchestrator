@@ -3,7 +3,7 @@
 Documento di lavoro: tiene traccia di dove siamo, dove vogliamo arrivare e perché.
 Si aggiorna a ogni feature, nello stesso commit del codice.
 
-Ultimo aggiornamento: 2026-10-05 (blocco 7, fase A)
+Ultimo aggiornamento: 2026-10-05 (blocco 7, fase C)
 
 ---
 
@@ -319,9 +319,28 @@ priorità al **visitatore che arriva dal link**: ordine A → D → C → B.
       il summary" e `""` significa silenzio, con un test dedicato; (3) la risposta di un tool MCP
       includeva il prefisso tecnico `[mcp:server/tool]`: ora resta solo nel testo per il modello.
       Dashboard e conversazioni rifinite: rimandate alla fase B, dopo la fase A sono già leggibili.
-- [ ] **C. Chiamata in vetrina:** schermata di chiamata con trascrizione dal vivo, agente che parla
-      e livello del router a ogni turno. Richiede backend: oggi il worker non manda gli eventi di
-      routing al browser durante la chiamata (candidato: data channel LiveKit dal worker).
+- [x] **C. Chiamata in vetrina.** **Backend:** a ogni turno il worker pubblica sul data channel
+      LiveKit (topic `vo.events`, reliable) un evento JSON con la frase capita, l'agente che aveva la
+      chiamata e quello che risponde, il livello che ha deciso, gli agenti chiusi dal gate con la loro
+      regola, la parola chiave trovata, handoff sì/no, i tool usati, la risposta, la latenza del
+      routing e `simulated` (vero quando dietro non c'è un modello, FakeProvider). Pubblica anche il
+      saluto iniziale e la fine (`end_call`). Gli eventi si costruiscono in `call_events.py`, nel core
+      senza import di livekit, quindi testabili da soli; `voice/agent.py` li pubblica e ne tiene copia
+      in `agent.events` per i test. **Frontend:** la pagina "Start a call" è una timeline costruita su
+      quegli eventi: bolle chiamante/agente, sotto ogni frase una striscia nel colore del livello che
+      spiega la scelta ("roaming is a keyword of…", "Billing Agent closed: verified callers only",
+      "has no specialists below it, so it keeps the call"), segnaposto di handover, tool come chip,
+      latenza in ms. A sinistra stato dell'agente (Listening / Thinking / Speaking dall'attributo
+      `lk.agent.state`), timer, agente in linea, frasi da provare con traduzione. Mentre il chiamante
+      parla, la sua trascrizione parziale appare in grigio e viene sostituita dall'evento del turno.
+      **Prima della chiamata** (e sempre, se il server non ha LiveKit) la timeline mostra una chiamata
+      d'esempio etichettata come tale: non scritta a mano, la genera `scripts/make_example_call.py`
+      facendo passare tre frasi nel router vero sulla famiglia demo (da rigenerare se la famiglia
+      cambia). **Verificato:** test unitari degli eventi e dell'ordine nella pipeline livekit-agents;
+      `scripts/d12_room_e2e.py` ora controlla anche che in una stanza LiveKit reale gli eventi arrivino
+      al chiamante in ordine (saluto, turno billing deciso dal pattern con parola chiave e handoff,
+      turno con `end_call`, fine): tutti OK. Non ancora provata dal browser con il microfono vero:
+      lo si vede al primo test dopo il deploy (o in locale con `npm run dev` + worker).
 - [ ] **B. Agenti:** pagina dell'agente con sottosezioni (prompt, voce, tool, knowledge), grafo più
       leggibile (oggi gli archi tratteggiati verso "Human handover"/"End of call" fanno un groviglio
       e i nomi sono troncati), pannello di test a lato invece che in fondo, test testuale a più turni.
@@ -415,4 +434,5 @@ infrastruttura che nessuna rifinitura della UI chiude.
 | `6592710` | Blocco 6, passo 2: il worker legge famiglia e tool dal DB a ogni chiamata (D4 chiuso in modalità condivisa); FastAPI serve anche il frontend compilato |
 | `ef0b88d` | Blocco 6, passo 3: accesso owner/visitatori (login, sola lettura, try-it gratuito per i visitatori), immagini Docker per web e worker, `render.yaml` (web + worker + Postgres). Ciclo completo verificato in locale con una chiamata LiveKit vera |
 | `216d3be` | Blocco 7, fase A: nuova struttura con menu laterale, pagina Tools, sistema visivo (Plex, verde centralino, colori dei livelli del router), interfaccia e messaggi del backend in inglese |
-| (questo commit) | Blocco 7, fase D: pagina Overview con dimostrazione dal vivo del router; corretti il trigger `problema` della demo, la regressione D10 sui testi vuoti e il prefisso dei tool MCP nelle risposte |
+| `946dbc1` | Blocco 7, fase D: pagina Overview con dimostrazione dal vivo del router; corretti il trigger `problema` della demo, la regressione D10 sui testi vuoti e il prefisso dei tool MCP nelle risposte |
+| (questo commit) | Blocco 7, fase C: chiamata in vetrina — eventi di routing dal worker al browser sul data channel LiveKit, pagina di chiamata come timeline spiegata turno per turno, chiamata d'esempio generata dal router vero |

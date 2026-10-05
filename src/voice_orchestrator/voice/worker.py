@@ -36,7 +36,7 @@ from datetime import datetime, timezone
 from livekit.agents import Agent, AgentSession, JobContext, JobRequest, WorkerOptions, cli
 from livekit.plugins import deepgram, silero
 
-from .. import call_log
+from .. import call_events, call_log
 from .agent import OrchestratorAgent, elevenlabs_tts
 from .bridge import VoiceBridge, new_voice_bridge
 from .usage_guard import UsageGuard
@@ -113,7 +113,10 @@ async def entrypoint(ctx: JobContext) -> None:
         # session.say() bypasses llm_node, where the voice is normally
         # chosen — so pick the root's voice here, before the greeting.
         agent.apply_voice(bridge.root)
-        await session.say(bridge.root.first_message)
+        handle = session.say(bridge.root.first_message)
+        # The live call view starts from the greeting (blocco 7, fase C).
+        await agent.publish(call_events.greeting_event(bridge.root, bridge.root.first_message))
+        await handle
 
 
 if __name__ == "__main__":

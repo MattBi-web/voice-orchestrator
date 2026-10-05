@@ -2,16 +2,11 @@ import { useEffect, useMemo, useState } from 'react'
 import type { Agent, CallStats, TestRouteResult } from '../types'
 import { api, ApiError } from '../api'
 import { flatten } from '../tree'
-import { LEVELS } from './LevelChip'
+import { describeRule, LEVELS } from './LevelChip'
+import { EXAMPLES } from '../examples'
 
 type Go = (view: 'call' | 'agents' | 'knowledge' | 'tools' | 'calls' | 'analytics') => void
 
-const EXAMPLES: { text: string; gloss: string }[] = [
-  { text: 'Quanto costa il roaming in Francia?', gloss: 'roaming prices in France' },
-  { text: 'Ho un problema con la bolletta', gloss: 'a problem with my bill' },
-  { text: 'Voglio parlare con un operatore', gloss: 'I want a human' },
-  { text: 'Il wifi non si connette', gloss: "wifi won't connect" },
-]
 
 const SECTIONS: { view: Parameters<Go>[0]; title: string; what: string }[] = [
   { view: 'agents', title: 'Agents', what: 'The family as a list or a graph: prompts, voices, keywords, tools and who can reach whom.' },
@@ -98,15 +93,6 @@ function explain(result: TestRouteResult, utterance: string, root: Agent | null,
         }
       : { key: 'llm_fallback', state: 'skipped', text: <>Not needed, so no model call.</> }
   return [gate, pattern, llm]
-}
-
-/** Gate rules in words where we know them; the raw rule otherwise. */
-function describeRule(rule: string): string {
-  const known: Record<string, string> = {
-    'authenticated == true': 'verified callers only',
-    "channel == 'voice'": 'voice calls only',
-  }
-  return known[rule.trim()] ?? `rule ${rule}`
 }
 
 function findById(node: Agent, id: string): Agent | undefined {

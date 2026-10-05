@@ -14,11 +14,15 @@ LIVEKIT_URL/API_KEY/API_SECRET, DEEPGRAM_API_KEY, ELEVENLABS_API_KEY.
 Checks: the greeting plays; after "ho un problema con la bolletta" the
 reply comes in a different voice (median pitch of each reply, so the
 check doesn't depend on reading any log); after "arrivederci" the room is
-closed by the agent, and only after the farewell has finished.
+closed by the agent, and only after the farewell has finished. Fase C: the
+call events the browser's call page is built from arrive on the data
+channel (topic vo.events) in order: greeting, the billing turn decided by
+the pattern level, the end_call turn, ended.
 """
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import sys
 import time
@@ -94,6 +98,7 @@ class Caller:
         self.speech: list[np.ndarray] = []
         self.disconnected_at: float | None = None
         self.last_voice_at = 0.0
+        self.events: list[dict] = []
 
     async def feed(self, source: rtc.AudioSource, stop: asyncio.Event) -> None:
         silence = np.zeros(FRAME, dtype=np.int16)
@@ -167,6 +172,11 @@ async def main(out_dir: Path) -> int:
         if track.kind == rtc.TrackKind.KIND_AUDIO and not agent_track.done():
             agent_track.set_result(track)
 
+    @room.on("data_received")
+    def _on_data(packet: rtc.DataPacket):
+        if packet.topic == "vo.events":
+            caller.events.append(json.loads(packet.data.decode("utf-8")))
+
     @room.on("disconnected")
     def _on_disc(reason):
         caller.disconnected_at = time.monotonic()
@@ -213,6 +223,9 @@ async def main(out_dir: Path) -> int:
     if caller.disconnected_at and segs:
         print(f"stanza chiusa {caller.disconnected_at - segs[-1][1]:+.2f}s dopo la fine dell'ultima voce udita")
 
+    kinds = [e["type"] for e in caller.events]
+    turns = [e for e in caller.events if e["type"] == "turn"]
+    print(f"eventi ricevuti: {kinds}")
     checks = {
         "saluto + 2 risposte udite": len(segs) >= 3,
         "voce cambiata dopo l'handoff (f0 saluto vs risposta billing differisce >40 Hz)": len(pitches) >= 2
@@ -220,6 +233,13 @@ async def main(out_dir: Path) -> int:
         "stanza chiusa dall'agente": caller.disconnected_at is not None,
         "chiusa dopo la fine del saluto": bool(segs) and caller.disconnected_at is not None
         and caller.disconnected_at >= segs[-1][1],
+        "eventi: saluto, 2 turni, fine (in ordine)": kinds == ["greeting", "turn", "turn", "ended"],
+        "evento turno billing: pattern, parola chiave, handoff": bool(turns)
+        and turns[0]["agent_id"] == "billing"
+        and turns[0]["resolved_by"] == "pattern"
+        and turns[0]["keyword"] == "bollett"
+        and turns[0]["handed_off"] is True,
+        "evento turno arrivederci: end_call": len(turns) > 1 and "end_call" in turns[1]["tools"],
     }
     for name, ok in checks.items():
         print(f"[{'OK' if ok else 'FALLITO'}] {name}")

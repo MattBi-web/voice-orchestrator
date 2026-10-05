@@ -1,0 +1,90 @@
+[
+  {
+    "type": "greeting",
+    "agent_id": "router",
+    "agent_name": "Receptionist",
+    "text": "Meridian Telecom, buongiorno! Come posso aiutarla?"
+  },
+  {
+    "type": "turn",
+    "seq": 1,
+    "caller": "Ho un problema con la bolletta",
+    "from_agent_id": "router",
+    "from_agent_name": "Receptionist",
+    "agent_id": "router",
+    "agent_name": "Receptionist",
+    "resolved_by": "llm_fallback",
+    "eligible": [
+      "sales",
+      "roaming",
+      "tech_support"
+    ],
+    "excluded": [
+      {
+        "id": "billing",
+        "name": "Billing Agent",
+        "rule": "authenticated == true"
+      }
+    ],
+    "keyword": null,
+    "handed_off": false,
+    "tools": [],
+    "reply": "[Receptionist] Ho capito: «hai detto 'Ho un problema con la bolletta'» — come posso aiutarti su questo?",
+    "latency_ms": null,
+    "simulated": true
+  },
+  {
+    "type": "turn",
+    "seq": 2,
+    "caller": "Quanto costa il roaming in Francia?",
+    "from_agent_id": "router",
+    "from_agent_name": "Receptionist",
+    "agent_id": "roaming",
+    "agent_name": "Roaming & International Agent",
+    "resolved_by": "pattern",
+    "eligible": [
+      "sales",
+      "roaming",
+      "tech_support"
+    ],
+    "excluded": [
+      {
+        "id": "billing",
+        "name": "Billing Agent",
+        "rule": "authenticated == true"
+      }
+    ],
+    "keyword": "roaming",
+    "handed_off": true,
+    "tools": [
+      "mcp:demo"
+    ],
+    "reply": "[Roaming & International Agent] Tariffa roaming dati per francia: €0.02/MB.",
+    "latency_ms": null,
+    "simulated": true
+  },
+  {
+    "type": "turn",
+    "seq": 3,
+    "caller": "Perfetto, grazie. Arrivederci",
+    "from_agent_id": "roaming",
+    "from_agent_name": "Roaming & International Agent",
+    "agent_id": "roaming",
+    "agent_name": "Roaming & International Agent",
+    "resolved_by": "gate_only",
+    "eligible": [],
+    "excluded": [],
+    "keyword": null,
+    "handed_off": false,
+    "tools": [
+      "end_call"
+    ],
+    "reply": "[Roaming & International Agent] Grazie per aver chiamato, buona giornata!",
+    "latency_ms": null,
+    "simulated": true
+  },
+  {
+    "type": "ended",
+    "reason": "end_call"
+  }
+]

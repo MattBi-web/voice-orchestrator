@@ -38,8 +38,12 @@ import asyncio
 from livekit.agents import Agent, FunctionTool, ModelSettings, get_job_context, llm, tts
 from livekit.plugins import elevenlabs
 
-from .. import config
+import json
+import logging
+
+from .. import call_events, config
 from ..agents.registry import AgentSpec
+from ..llm import FakeProvider
 from .bridge import VoiceBridge, is_actionable
 
 # Same model everywhere: the session default in worker.py and every
@@ -133,6 +137,11 @@ class OrchestratorAgent(Agent):
         # Set by tests / the live check to observe the hangup instead of
         # deleting a room; see _end_call().
         self.ended_at: float | None = None
+        # Blocco 7, fase C: every event published to the browser, in order
+        # (the call page builds its live timeline from these; tests read
+        # them here). See call_events.py for the shapes.
+        self.events: list[dict] = []
+        self._turn_seq = 0
 
     def _tts_for_agent(self, agent: AgentSpec) -> tts.TTS | None:
         """None when the agent has no voice_id override — apply_voice()
@@ -190,7 +199,20 @@ class OrchestratorAgent(Agent):
         # from a running event loop", because llm_node is already running
         # inside LiveKit's own loop. to_thread() runs it on a worker thread,
         # which is free to start its own new event loop.
+        from_agent_id = self._bridge.session.current_agent_id or self._bridge.root.id
         result = await asyncio.to_thread(self._bridge.turn, utterance)
+        self._turn_seq += 1
+        await self.publish(
+            call_events.turn_event(
+                self._bridge.root,
+                from_agent_id,
+                utterance,
+                result,
+                self._bridge.session,
+                self._turn_seq,
+                simulated=isinstance(self._bridge.provider, FakeProvider),
+            )
+        )
         # Voice of whoever answered *this* turn — after handle_turn(), so a
         # handoff in this very turn already speaks with the new agent's voice.
         self.apply_voice(result.agent)
@@ -228,8 +250,27 @@ class OrchestratorAgent(Agent):
         job (tests, scripts/d12_live_check.py) there's no room: just close
         the session."""
         self.ended_at = asyncio.get_running_loop().time()
+        await self.publish(call_events.ended_event("end_call"))
         ctx = get_job_context(required=False)
         if ctx is not None:
             await ctx.delete_room()
         else:
             self.session.shutdown(drain=True)
+
+    async def publish(self, event: dict) -> None:
+        """Sends one call event to everyone in the room on the data channel
+        (topic call_events.EVENTS_TOPIC), reliably and in order. Outside a
+        job (tests, the scripted harness) there is no room: the event is only
+        kept in `self.events`. Never fails the call — a lost event costs a
+        line in the live view, not the conversation."""
+        self.events.append(event)
+        ctx = get_job_context(required=False)
+        if ctx is None:
+            return
+        try:
+            await ctx.room.local_participant.publish_data(
+                json.dumps(event).encode("utf-8"), reliable=True, topic=call_events.EVENTS_TOPIC
+            )
+        except Exception:  # noqa: BLE001 — see docstring
+            logging.getLogger(__name__).warning("could not publish call event %s", event.get("type"), exc_info=True)
+

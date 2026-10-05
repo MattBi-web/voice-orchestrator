@@ -72,6 +72,30 @@ export interface AgentReparentRequest {
   parent_id: string
 }
 
+/** Live call events (blocco 7, fase C): published by the voice worker on the
+ * LiveKit data channel, topic `vo.events` (call_events.py). */
+export type CallEvent =
+  | { type: 'greeting'; agent_id: string; agent_name: string; text: string }
+  | {
+      type: 'turn'
+      seq: number
+      caller: string
+      from_agent_id: string
+      from_agent_name: string
+      agent_id: string
+      agent_name: string
+      resolved_by: string
+      eligible: string[]
+      excluded: { id: string; name: string; rule: string }[]
+      keyword: string | null
+      handed_off: boolean
+      tools: string[]
+      reply: string
+      latency_ms: number | null
+      simulated: boolean
+    }
+  | { type: 'ended'; reason: string }
+
 export interface TestRouteResult {
   agent_id: string
   agent_name: string

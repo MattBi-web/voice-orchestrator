@@ -59,3 +59,16 @@ def test_no_hangup_without_end_call():
     call = _run(["ciao", "vorrei una nuova offerta"])
     assert [s.voice for s in call.syntheses] == ["default", "voce_sales"]
     assert call.agent.ended_at is None
+
+
+def test_call_publishes_turn_and_end_events_in_order():
+    call = _run(["ciao", "ho un problema con la bolletta", "arrivederci"])
+    kinds = [e["type"] for e in call.agent.events]
+    assert kinds == ["turn", "turn", "turn", "ended"]
+    turns = [e for e in call.agent.events if e["type"] == "turn"]
+    assert [t["seq"] for t in turns] == [1, 2, 3]
+    assert turns[1]["agent_id"] == "billing" and turns[1]["resolved_by"] == "pattern"
+    assert turns[1]["keyword"] == "bolletta" and turns[1]["handed_off"] is True
+    assert turns[2]["tools"] == ["end_call"]
+    assert all(t["simulated"] for t in turns)  # the harness runs on FakeProvider
+

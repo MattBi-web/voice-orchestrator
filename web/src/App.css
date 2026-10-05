@@ -502,60 +502,342 @@
 
 /* ---- Voice test console ---- */
 
-.voice-console {
-  border: 1px solid var(--border);
+/* ---- Call page (blocco 7, fase C) ---- */
+
+.call {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+
+.call-panel {
+  border: 1px solid var(--line);
   border-radius: var(--radius-lg);
-  padding: 20px;
-  max-width: 640px;
+  padding: 18px;
+  position: sticky;
+  top: 24px;
 }
 
-.voice-console__hint {
-  opacity: 0.7;
-  font-size: 13px;
-  margin-bottom: 16px;
-}
-
-.voice-console__controls {
+.call-status {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
+  font-weight: 500;
+  color: var(--ink);
 }
 
-.voice-console__controls button[type='button']:not(.btn-danger) {
-  background: var(--accent);
-  color: #fff;
-  border: none;
-  border-radius: var(--radius);
-  padding: 10px 20px;
-  font-weight: 600;
+.call-status__dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--line-strong);
+  flex: none;
 }
 
-.voice-console__controls button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
+.call-status--live .call-status__dot {
+  background: var(--green);
+  box-shadow: 0 0 0 0 rgb(14 110 85 / 40%);
+  animation: call-pulse 1.6s ease-out infinite;
 }
 
-.voice-console__status {
-  color: #2e9e4f;
+.call-status--live.call-status--thinking .call-status__dot {
+  background: var(--llm);
+}
+
+.call-status--connecting .call-status__dot {
+  background: var(--llm);
+}
+
+@keyframes call-pulse {
+  70% {
+    box-shadow: 0 0 0 7px rgb(14 110 85 / 0%);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgb(14 110 85 / 0%);
+  }
+}
+
+.call-status__timer {
+  margin-left: auto;
+  font-family: var(--mono);
   font-size: 13px;
-  font-weight: 600;
+  color: var(--ink-3);
 }
 
-.voice-console__transcript {
+.call-panel__agent {
+  margin: 10px 0 0;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+.call-panel__btn {
+  width: 100%;
+  margin-top: 16px;
+  padding: 10px 16px;
+  justify-content: center;
+}
+
+.call-panel__off {
+  margin: 12px 0 0;
+  font-size: 13px;
+  color: var(--ink-2);
+  background: var(--surface);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+}
+
+.call-panel__tips {
   margin-top: 20px;
   padding-top: 16px;
-  border-top: 1px solid var(--border);
-  max-height: 360px;
+  border-top: 1px solid var(--line);
+}
+
+.call-panel__tips h2 {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-3);
+  margin: 0 0 8px;
+}
+
+.call-panel__tips ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.call-panel__tips li {
+  display: flex;
+  flex-direction: column;
+  font-size: 13px;
+  color: var(--ink);
+}
+
+.call-panel__gloss {
+  color: var(--ink-3);
+  font-size: 12px;
+}
+
+.call-panel__fine {
+  margin: 14px 0 0;
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+.call-main {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.call-main__head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.call-main__head p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+.call-badge {
+  flex: none;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ink-2);
+  border: 1px dashed var(--line-strong);
+  border-radius: 999px;
+  padding: 1px 8px;
+}
+
+.call-badge--live {
+  color: var(--green);
+  border: 1px solid var(--green);
+  background: var(--green-tint);
+}
+
+.call-main__body {
+  padding: 18px;
+}
+
+.call-main__body--live {
+  max-height: min(68vh, 720px);
   overflow-y: auto;
 }
 
-.voice-console__line {
-  margin-bottom: 6px;
-  font-size: 14px;
+.call-msg__gloss {
+  display: block;
+  margin-top: 3px;
+  font-size: 12px;
+  color: var(--ink-3);
 }
 
-.voice-console__line--partial {
+.call-main__empty {
+  color: var(--ink-3);
+  font-size: 14px;
+  margin: 0;
+}
+
+.call-timeline {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.call-msg {
+  max-width: 78%;
+  animation: call-in 0.25s ease-out both;
+}
+
+.call-msg p {
+  margin: 3px 0 0;
+  padding: 9px 13px;
+  border-radius: 12px;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.call-msg__who {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+.call-msg--agent p {
+  background: var(--surface);
+  color: var(--ink);
+  border-top-left-radius: 4px;
+}
+
+.call-msg--caller {
+  align-self: flex-end;
+  text-align: right;
+}
+
+.call-msg--caller .call-msg__who {
+  justify-content: flex-end;
+}
+
+.call-msg--caller p {
+  background: var(--ink);
+  color: #fff;
+  border-top-right-radius: 4px;
+  text-align: left;
+}
+
+.call-msg--pending p {
   opacity: 0.55;
+  font-style: italic;
+}
+
+.call-tool {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-2);
+  background: var(--surface-2);
+  border-radius: 4px;
+  padding: 0 5px;
+}
+
+.call-route {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--ink-2);
+  padding: 7px 10px;
+  border-left: 3px solid var(--gate);
+  background: var(--bg);
+  animation: call-in 0.25s ease-out both;
+}
+
+.call-route--pattern {
+  border-left-color: var(--pattern);
+}
+
+.call-route--llm_fallback {
+  border-left-color: var(--llm);
+}
+
+.call-route .level {
+  flex: none;
+}
+
+.call-route__text {
+  flex: 1;
+}
+
+.call-route__text mark {
+  background: var(--pattern-tint);
+  color: var(--ink);
+  padding: 0 3px;
+  border-radius: 3px;
+}
+
+.call-route__note {
+  color: var(--ink-3);
+}
+
+.call-route__ms {
+  flex: none;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-3);
+}
+
+.call-mark {
+  align-self: center;
+  font-size: 12px;
+  color: var(--ink-2);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 2px 12px;
+  animation: call-in 0.25s ease-out both;
+}
+
+.call-mark--end {
+  color: var(--ink-3);
+  border-style: dashed;
+}
+
+@keyframes call-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+@media (max-width: 900px) {
+  .call {
+    grid-template-columns: 1fr;
+  }
+  .call-panel {
+    position: static;
+  }
+  .call-msg {
+    max-width: 92%;
+  }
+  .call-main__head {
+    flex-direction: column;
+    gap: 6px;
+  }
 }
 
 /* ---- Dashboard ---- */

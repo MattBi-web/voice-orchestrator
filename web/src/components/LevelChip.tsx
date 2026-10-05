@@ -16,6 +16,15 @@ export function LevelChip({ level }: { level: string }) {
   )
 }
 
+/** Gate rules in words where we know them; the raw rule otherwise. */
+export function describeRule(rule: string): string {
+  const known: Record<string, string> = {
+    'authenticated == true': 'verified callers only',
+    "channel == 'voice'": 'voice calls only',
+  }
+  return known[rule.trim()] ?? `rule ${rule}`
+}
+
 /** Where a recorded call came from, in words a visitor understands. */
 export const SOURCE_LABELS: Record<string, string> = {
   voice: 'Voice call',
