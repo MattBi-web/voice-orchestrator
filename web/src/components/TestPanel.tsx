@@ -7,6 +7,7 @@ import { EXAMPLES } from '../examples'
 import { CallTimeline } from './CallTimeline'
 
 interface Props {
+  pid: string
   root: Agent | null
 }
 
@@ -15,7 +16,7 @@ interface Props {
  * /api/test/conversations). Each turn is explained the same way as on the
  * call page. The conversation is created on the first message and recorded
  * in Calls when it ends. */
-export function TestPanel({ root }: Props) {
+export function TestPanel({ pid, root }: Props) {
   const owner = useOwner()
   const [llm, setLlm] = useState<LlmStatus | null>(null)
   const [useModel, setUseModel] = useState(false)
@@ -38,7 +39,7 @@ export function TestPanel({ root }: Props) {
 
   useEffect(() => {
     api
-      .getLlmStatus()
+      .getLlmStatus(pid)
       .then((s) => {
         setLlm(s)
         setUseModel(s.real && owner)
@@ -82,7 +83,7 @@ export function TestPanel({ root }: Props) {
     try {
       let id = convId
       if (!id) {
-        const started = await api.startConversation(startId || null, channel, useModel)
+        const started = await api.startConversation(pid, startId || null, channel, useModel)
         id = started.id
         setConvId(id)
         setSimulated(started.simulated)
@@ -147,7 +148,7 @@ export function TestPanel({ root }: Props) {
         {owner && llm?.real && (
           <label className="tp__check">
             <input type="checkbox" checked={useModel} onChange={(e) => resetOn(setUseModel)(e.target.checked)} />
-            Reply with <code>{llm.resolved}</code>
+            <span title={llm.requested}>Use the project’s real models</span>
           </label>
         )}
       </div>
@@ -155,8 +156,11 @@ export function TestPanel({ root }: Props) {
       <div className="tp__body" ref={bodyRef}>
         {events.length === 0 && !sending ? (
           <div className="tp__empty">
-            <p>Write as the caller, in Italian. The router is the real one; the conversation keeps going until you say goodbye.</p>
-            <div className="tp__examples">
+            <p>
+              Write as the caller{pid === 'demo' ? ', in Italian' : ''}. The router is the real one; the conversation keeps
+              going until you say goodbye.
+            </p>
+            <div className="tp__examples" hidden={pid !== 'demo'}>
               {EXAMPLES.map((ex) => (
                 <button key={ex.text} type="button" className="ov-example" onClick={() => send(ex.text)} disabled={busy || !root}>
                   <span className="ov-example__it">{ex.text}</span>
@@ -190,7 +194,7 @@ export function TestPanel({ root }: Props) {
             aria-label="What the caller says"
             value={text}
             onChange={(e) => setText(e.target.value)}
-            placeholder={events.length ? 'Reply…' : 'e.g. il wifi non si connette'}
+            placeholder={events.length ? 'Reply…' : pid === 'demo' ? 'e.g. il wifi non si connette' : 'Say something as the caller…'}
             disabled={!root}
           />
           <button type="submit" className="btn-primary" disabled={busy || !text.trim() || !root}>
@@ -199,8 +203,8 @@ export function TestPanel({ root }: Props) {
         </form>
       )}
       <p className="tp__fine">
-        {events.length > 0 && !simulated
-          ? 'Replies come from the configured model.'
+        {(events.length > 0 ? !simulated : useModel && llm?.real)
+          ? `Replies come from the project’s models (${llm?.requested ?? 'configured'}). Each turn costs tokens.`
           : llm?.real && !owner
             ? 'Replies are placeholders in the public demo; routing and tools are real.'
             : 'Replies are placeholders (no language model); routing and tools are real.'}

@@ -123,7 +123,7 @@ def test_worker_family_and_tools_come_from_the_database(shared):
         )
     REGISTRY.pop("webhook:dal_builder", None)  # as on the worker's machine: not registered yet
 
-    root = load_call_family()
+    root, _settings = load_call_family()
     assert root.find("vip") is not None  # saved in the builder → live for the next call, no export
     assert "webhook:dal_builder" in REGISTRY
     assert new_voice_bridge("c-shared").root.find("vip") is not None
@@ -132,7 +132,7 @@ def test_worker_family_and_tools_come_from_the_database(shared):
 def test_empty_database_falls_back_to_the_yaml(shared):
     from voice_orchestrator.voice.bridge import load_call_family
 
-    assert load_call_family().id == "router"  # nothing seeded yet: config/agents.yaml
+    assert load_call_family()[0].id == "router"  # nothing seeded yet: config/agents.yaml
 
 
 # ---- passo 2: the API serves the built frontend ----

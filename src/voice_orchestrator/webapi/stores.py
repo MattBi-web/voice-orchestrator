@@ -26,6 +26,7 @@ def calls_append(record: dict[str, Any]) -> None:
     with db.session_scope() as s:
         row = s.get(CallRow, record["call_id"]) or CallRow(call_id=record["call_id"])
         row.source = record.get("source", "")
+        row.project_id = record.get("project_id", "demo")
         row.started_at = record.get("started_at", "")
         row.record_json = json.dumps(record)
         s.add(row)

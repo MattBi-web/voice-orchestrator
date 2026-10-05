@@ -34,18 +34,24 @@ import time
 from datetime import datetime, timezone
 
 from livekit.agents import Agent, AgentSession, JobContext, JobRequest, WorkerOptions, cli
-from livekit.plugins import deepgram, silero
+from livekit.plugins import silero
 
 from .. import call_events, call_log
-from .agent import OrchestratorAgent, elevenlabs_tts
+from ..project import DEFAULT_PROJECT, stt_for, tts_for
+from ..webapi.voice_token import project_from_room
+from .agent import OrchestratorAgent
 from .bridge import VoiceBridge, new_voice_bridge
+from .providers import choice_key, make_stt, make_tts
 from .usage_guard import UsageGuard
 
 _guard = UsageGuard()
 
 
 def _build_bridge(ctx: JobContext) -> VoiceBridge:
-    return new_voice_bridge(call_id=ctx.job.id)
+    # Blocco 8: the room name says which project the call is on (webapi
+    # voice_token.room_name_for); any other room runs the demo.
+    project_id = project_from_room(ctx.room.name) or DEFAULT_PROJECT
+    return new_voice_bridge(call_id=ctx.job.id, project_id=project_id)
 
 
 async def request_fnc(req: JobRequest) -> None:
@@ -71,32 +77,32 @@ async def entrypoint(ctx: JobContext) -> None:
         # Same shutdown hook also files this call in call_log.jsonl for the
         # agent-builder's analytics dashboard — one real call, recorded once,
         # whether it ran its full course or the caller just hung up.
-        call_log.append(call_log.from_session(bridge.session, source="voice", started_at=started_wall))
+        call_log.append(
+            call_log.from_session(bridge.session, source="voice", started_at=started_wall, project_id=bridge.project_id)
+        )
 
     ctx.add_shutdown_callback(_record_usage)
 
+    # Blocco 8: the session starts with the receptionist's pipeline (the
+    # project's default models, or the root's own overrides). Defaults when
+    # nothing is chosen: Deepgram nova-3 with language "multi" (switches
+    # language mid-call) and ElevenLabs Flash v2.5 (the low-latency model).
+    # An agent with different STT/TTS gets them at the handover
+    # (OrchestratorAgent.apply_voice).
+    stt_choice = stt_for(bridge.root, bridge.settings)
+    tts_choice = tts_for(bridge.root, bridge.settings)
     session = AgentSession(
         vad=silero.VAD.load(),
-        # Nova-3 with language="multi" rather than pinning "it": Deepgram's
-        # multi-language mode code-switches within a single call, which
-        # suits a caller who might drop into English mid-sentence better
-        # than a fixed Italian model would — and it's one STT instance
-        # instead of needing to pick a language up front. Pin
-        # language="it" instead if you'd rather trade that flexibility for
-        # a small accuracy bump on Italian-only calls.
-        stt=deepgram.STT(model="nova-3", language="multi"),
-        # ElevenLabs' Flash v2.5 model — picked specifically for the
-        # sub-300ms voice round-trip budget the architecture research set;
-        # eleven_turbo_v2_5 (this plugin's own default) trades some of that
-        # latency back for quality, which isn't the right trade for a live
-        # phone-style conversation.
-        tts=elevenlabs_tts(),
+        stt=make_stt(stt_choice),
+        tts=make_tts(tts_choice),
         # No real chat model here: OrchestratorAgent.llm_node() replaces it
         # (see agent.py's docstring). The agent itself carries a never-called
         # RouterLLM placeholder, because livekit-agents skips replying to a
         # user turn when no LLM is set at all — D12.
     )
     agent = OrchestratorAgent(bridge)
+    agent.default_stt_key = choice_key(stt_choice)
+    agent.default_tts_key = choice_key(tts_choice)
     await session.start(agent=agent, room=ctx.room)
     # Blocco 2's first_message, root-agent only: a sub-agent reached via
     # handoff responds to whatever triggered the handoff instead, so only

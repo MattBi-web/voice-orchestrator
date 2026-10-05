@@ -32,6 +32,11 @@ voice = [
   "livekit-plugins-deepgram>=1.8",
   "livekit-plugins-elevenlabs>=1.8",
   "livekit-plugins-silero>=1.8",
+  # Blocco 8: the other speech providers the builder offers (catalog.py).
+  # Imported only when a project or agent picks them (voice/providers.py).
+  "livekit-plugins-openai>=1.8",
+  "livekit-plugins-cartesia>=1.8",
+  "livekit-plugins-assemblyai>=1.8",
 ]
 # The agent-builder web API (src/voice_orchestrator/webapi/) — a FastAPI
 # backend over a SQLite-backed copy of the agent family, for the React

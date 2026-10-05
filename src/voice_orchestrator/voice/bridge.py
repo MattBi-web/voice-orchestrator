@@ -17,12 +17,14 @@ stdout) — both of those live in `agent.py`/`worker.py`, not here.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Any
 
 from .. import config
-from ..agents.registry import AgentSpec, load_family
-from ..llm import LLMProvider, get_provider
+from ..agents.registry import AgentSpec, load_family_file
+from ..llm import FakeProvider, LLMProvider, ResilientProvider
 from ..orchestrator import TurnResult, handle_turn
+from ..project import DEFAULT_PROJECT, ModelSettings, responder, router_provider
 from ..state import CallSession
 
 
@@ -45,6 +47,12 @@ class VoiceBridge:
     session: CallSession
     root: AgentSpec
     provider: LLMProvider
+    # Blocco 8: the project this call is on, and its default models. The
+    # router and the replies resolve through project.py; `provider` stays
+    # the router's (and the history summary's) provider.
+    project_id: str = DEFAULT_PROJECT
+    settings: ModelSettings = field(default_factory=ModelSettings)
+    responder: Any = None
 
     def turn(self, utterance: str) -> TurnResult:
         """One caller utterance in, one TurnResult out. `handle_turn()`
@@ -56,13 +64,20 @@ class VoiceBridge:
         raise "cannot be called from a running event loop" the moment a
         turn happens to hit an MCP tool. That wrapping lives in agent.py,
         not here, so this method stays a plain, directly-testable function."""
-        return handle_turn(self.session, self.root, utterance.strip(), self.provider)
+        return handle_turn(self.session, self.root, utterance.strip(), self.provider, responder=self.responder)
+
+    def is_simulated(self, agent: AgentSpec) -> bool:
+        """True when `agent`'s reply comes from no model (FakeProvider):
+        the call page then labels it a placeholder."""
+        if self.responder is not None:
+            return isinstance(self.responder(agent)[0], FakeProvider)
+        return isinstance(self.provider, FakeProvider)
 
 
 logger = logging.getLogger(__name__)
 
 
-def load_call_family() -> AgentSpec:
+def load_call_family(project_id: str = DEFAULT_PROJECT) -> tuple[AgentSpec, ModelSettings]:
     """The agent family a new call runs on. Shared mode (blocco 6): read
     fresh from the database at every call — what was saved in the builder a
     minute ago is what answers this call, with no export and no restart
@@ -70,21 +85,24 @@ def load_call_family() -> AgentSpec:
     first, so MCP servers and webhook tools added in the builder are live
     too. Default mode: config/agents.yaml, as before. An empty database
     (the web service hasn't seeded it yet) falls back to the YAML rather
-    than failing the call."""
+    than failing the call. Blocco 8: the project's family and its default
+    models; the YAML's `project:` block carries the models in default mode."""
     if config.shared_mode():
-        from ..webapi import db, mcp_sync, repository, webhook_sync
+        from ..webapi import db, mcp_sync, project_repository, repository, webhook_sync
 
         with db.session_scope() as s:
             mcp_sync.sync_registry_from_db(s)
             webhook_sync.sync_registry_from_db(s)
-            root = repository.build_tree(s)
+            root = repository.build_tree(s, project_id)
+            settings = project_repository.settings_of(s, project_id)
         if root is not None:
-            return root
-        logger.warning("shared mode: no agents in the database yet, using %s", config.AGENTS_FILE)
-    return load_family(config.AGENTS_FILE)
+            return root, settings
+        logger.warning("shared mode: project %r has no agents, using %s", project_id, config.AGENTS_FILE)
+    root, meta = load_family_file(config.AGENTS_FILE)
+    return root, ModelSettings.from_dict(meta.get("settings"))
 
 
-def new_voice_bridge(call_id: str, provider: LLMProvider | None = None) -> VoiceBridge:
+def new_voice_bridge(call_id: str, provider: LLMProvider | None = None, project_id: str = DEFAULT_PROJECT) -> VoiceBridge:
     """What worker.py's entrypoint calls once per LiveKit job — one bridge
     per phone call, on the family `load_call_family()` resolves (the
     database in shared mode, config/agents.yaml otherwise) and the same
@@ -93,6 +111,41 @@ def new_voice_bridge(call_id: str, provider: LLMProvider | None = None) -> Voice
     `channel == 'voice'`-gated tools behave the same whether the call came
     in through this real voice layer or through `voice-orchestrator chat
     --channel voice`."""
-    root = load_call_family()
+    root, settings = load_call_family(project_id)
     session = CallSession(call_id=call_id, channel="voice")
-    return VoiceBridge(session=session, root=root, provider=provider or get_provider())
+    if provider is not None:
+        # A provider passed in (tests) routes and answers.
+        return VoiceBridge(
+            session=session,
+            root=root,
+            provider=provider,
+            project_id=project_id,
+            settings=settings,
+            responder=lambda agent: (provider, agent.llm_temperature),
+        )
+    # Otherwise the project's router model, and each agent's reply from the
+    # project's LLM or its own override — wrapped so a failing model costs
+    # the caller one apology, not a silent call (llm.ResilientProvider).
+    pick = responder(settings)
+
+    def resilient(agent: AgentSpec):
+        inner, temperature = pick(agent)
+        return (inner if isinstance(inner, FakeProvider) else _resilient(inner)), temperature
+
+    return VoiceBridge(
+        session=session,
+        root=root,
+        provider=_resilient(router_provider(settings)),
+        project_id=project_id,
+        settings=settings,
+        responder=resilient,
+    )
+
+
+_wrapped: dict[int, ResilientProvider] = {}
+
+
+def _resilient(inner: LLMProvider) -> LLMProvider:
+    if isinstance(inner, FakeProvider):
+        return inner
+    return _wrapped.setdefault(id(inner), ResilientProvider(inner))

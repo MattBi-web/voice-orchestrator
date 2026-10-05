@@ -74,9 +74,11 @@ def normalize_name(raw: str) -> str:
 
 def _agents_using(session: Session) -> dict[str, list[str]]:
     used: dict[str, list[str]] = {}
-    for row in session.scalars(select(AgentRow).order_by(AgentRow.id)).all():
+    # Blocco 8: documents are shared by every project; an agent outside the
+    # demo is named "<project>/<agent>" so the list stays unambiguous.
+    for row in session.scalars(select(AgentRow).order_by(AgentRow.project_id, AgentRow.id)).all():
         for name in row.knowledge:
-            used.setdefault(name, []).append(row.id)
+            used.setdefault(name, []).append(row.id if row.project_id == "demo" else f"{row.project_id}/{row.id}")
     return used
 
 

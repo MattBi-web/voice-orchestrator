@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import type { Agent, CallRecord } from '../types'
+import type { CallRecord } from '../types'
+import { useProjects, useTrees } from '../trees'
 import { findAgent } from '../tree'
 import { api, ApiError } from '../api'
 import { ConversationDetail } from './ConversationDetail'
@@ -10,12 +11,17 @@ import { SOURCE_LABELS, formatWhen } from './LevelChip'
 type SubView = 'calls' | 'criteria'
 
 interface Props {
-  root: Agent | null
+  /** Blocco 8: only this project's calls; omitted = every project, with a
+   * project filter. */
+  project?: string
   selectedCallId: string | null
   onSelectCall: (callId: string | null) => void
 }
 
-export function Conversations({ root, selectedCallId, onSelectCall }: Props) {
+export function Conversations({ project, selectedCallId, onSelectCall }: Props) {
+  const [filter, setFilter] = useState('')
+  const scope = project ?? filter
+  const projects = useProjects()
   const [sub, setSub] = useState<SubView>('calls')
   const [calls, setCalls] = useState<CallRecord[]>([])
   const [error, setError] = useState<string | null>(null)
@@ -23,7 +29,7 @@ export function Conversations({ root, selectedCallId, onSelectCall }: Props) {
 
   const load = () => {
     api
-      .getCalls(200)
+      .getCalls(200, scope)
       .then((r) => {
         setCalls(r.calls)
         setError(null)
@@ -34,7 +40,12 @@ export function Conversations({ root, selectedCallId, onSelectCall }: Props) {
 
   useEffect(() => {
     load()
-  }, [])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scope])
+
+  const treesByProject = useTrees(calls.map((c) => c.project_id))
+  const projectName = (pid: string) => projects.find((p) => p.id === pid)?.name ?? pid
+  const selected = calls.find((c) => c.call_id === selectedCallId)
 
   return (
     <div className="convos">
@@ -54,6 +65,16 @@ export function Conversations({ root, selectedCallId, onSelectCall }: Props) {
           >
             Criteria
           </button>
+          {sub === 'calls' && project === undefined && projects.length > 1 && (
+            <select value={filter} onChange={(e) => setFilter(e.target.value)} aria-label="Agent">
+              <option value="">All agents</option>
+              {projects.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          )}
           {sub === 'calls' && (
             <button type="button" className="btn-secondary" onClick={load}>
               Refresh
@@ -86,11 +107,12 @@ export function Conversations({ root, selectedCallId, onSelectCall }: Props) {
                     <span className={`dashboard__badge dashboard__badge--${c.source}`}>{SOURCE_LABELS[c.source] ?? c.source}</span>
                     <span className="convos__item-time">{formatWhen(c.started_at)}</span>
                   </span>
+                  {project === undefined && <span className="convos__item-project">{projectName(c.project_id)}</span>}
                   <span className="convos__item-agent">
-                    {c.final_agent_id ? findAgent(root, c.final_agent_id)?.name || c.final_agent_id : '—'}
+                    {c.final_agent_id ? findAgent(treesByProject[c.project_id] ?? null, c.final_agent_id)?.name || c.final_agent_id : '—'}
                     <span className="convos__item-turns">
                       {' '}
-                      · {c.turn_count} message{c.turn_count === 1 ? '' : 's'}
+                      {c.turn_count} message{c.turn_count === 1 ? '' : 's'}
                     </span>
                   </span>
                   <VerdictChip verdict={c.call_successful} />
@@ -100,7 +122,11 @@ export function Conversations({ root, selectedCallId, onSelectCall }: Props) {
           </ul>
           <div className="convos__detail">
             {selectedCallId ? (
-              <ConversationDetail callId={selectedCallId} root={root} onAnalyzed={load} />
+              <ConversationDetail
+                callId={selectedCallId}
+                root={selected ? (treesByProject[selected.project_id] ?? null) : null}
+                onAnalyzed={load}
+              />
             ) : (
               <p className="app__hint">Select a call to see its transcript and evaluation.</p>
             )}

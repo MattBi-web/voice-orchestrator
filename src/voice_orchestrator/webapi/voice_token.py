@@ -25,12 +25,30 @@ def is_configured() -> bool:
     return bool(config.LIVEKIT_URL and config.LIVEKIT_API_KEY and config.LIVEKIT_API_SECRET)
 
 
-def mint() -> dict:
+ROOM_PREFIX = "webtest-"
+SEPARATOR = "--"
+
+
+def room_name_for(project_id: str) -> str:
+    """webtest-<project>--<random>. Project ids are slugs without "--"
+    (project.slugify), so the worker can split it back."""
+    return f"{ROOM_PREFIX}{project_id}{SEPARATOR}{secrets.token_hex(4)}"
+
+
+def project_from_room(room_name: str) -> str | None:
+    """The project a room belongs to; None for a room named any other way
+    (e.g. the D12 test rooms), which then runs the demo."""
+    if not room_name.startswith(ROOM_PREFIX) or SEPARATOR not in room_name:
+        return None
+    return room_name[len(ROOM_PREFIX):].split(SEPARATOR, 1)[0] or None
+
+
+def mint(project_id: str = "demo") -> dict:
     """Returns {"token", "url", "room", "identity"} for a fresh, randomly
     named room — one new room per test session, so two people trying the
     console at once don't end up dropped into the same call."""
     identity = f"web-tester-{secrets.token_hex(3)}"
-    room_name = f"webtest-{secrets.token_hex(4)}"
+    room_name = room_name_for(project_id)
     grants = api.VideoGrants(room_join=True, room=room_name, can_publish=True, can_subscribe=True)
     token = (
         api.AccessToken(config.LIVEKIT_API_KEY, config.LIVEKIT_API_SECRET)

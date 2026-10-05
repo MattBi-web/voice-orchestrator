@@ -12,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..agents.registry import AgentSpec, ToolBinding
+from ..project import DEFAULT_PROJECT
 from .models import AgentRow
 
 
@@ -65,6 +66,14 @@ class AgentInput:
     voice_id: str = ""
     voice_stability: float | None = None
     voice_speed: float | None = None
+    tts_provider: str = ""
+    tts_model: str = ""
+    stt_provider: str = ""
+    stt_model: str = ""
+    stt_language: str = ""
+
+
+OVERRIDE_FIELDS = ("tts_provider", "tts_model", "stt_provider", "stt_model", "stt_language")
 
 
 def row_to_spec(row: AgentRow) -> AgentSpec:
@@ -86,14 +95,25 @@ def row_to_spec(row: AgentRow) -> AgentSpec:
         voice_id=row.voice_id,
         voice_stability=row.voice_stability,
         voice_speed=row.voice_speed,
+        tts_provider=row.tts_provider,
+        tts_model=row.tts_model,
+        stt_provider=row.stt_provider,
+        stt_model=row.stt_model,
+        stt_language=row.stt_language,
         children=[],
     )
 
 
-def build_tree(session: Session) -> AgentSpec | None:
-    """None if the database is empty (nothing seeded yet) — app.py turns
-    that into a 404 rather than a confusing empty tree."""
-    rows = session.scalars(select(AgentRow).order_by(AgentRow.position)).all()
+def project_rows(session: Session, project_id: str) -> list[AgentRow]:
+    return list(
+        session.scalars(select(AgentRow).where(AgentRow.project_id == project_id).order_by(AgentRow.position)).all()
+    )
+
+
+def build_tree(session: Session, project_id: str = DEFAULT_PROJECT) -> AgentSpec | None:
+    """None if the project has no agents (or doesn't exist) — app.py turns
+    that into a 4xx rather than a confusing empty tree."""
+    rows = project_rows(session, project_id)
     if not rows:
         return None
     specs_by_id = {row.id: row_to_spec(row) for row in rows}
@@ -109,8 +129,8 @@ def build_tree(session: Session) -> AgentSpec | None:
     return root
 
 
-def get_row(session: Session, agent_id: str) -> AgentRow:
-    row = session.get(AgentRow, agent_id)
+def get_row(session: Session, agent_id: str, project_id: str = DEFAULT_PROJECT) -> AgentRow:
+    row = session.get(AgentRow, (project_id, agent_id))
     if row is None:
         raise AgentNotFound(agent_id)
     return row
@@ -121,18 +141,21 @@ def list_tool_ids_in_use(session: Session) -> set[str]:
     return {t["id"] for row in rows for t in row.tools}
 
 
-def create_agent(session: Session, data: AgentInput) -> AgentRow:
-    if session.get(AgentRow, data.id) is not None:
+def create_agent(session: Session, data: AgentInput, project_id: str = DEFAULT_PROJECT) -> AgentRow:
+    if session.get(AgentRow, (project_id, data.id)) is not None:
         raise AgentIdTaken(data.id)
 
-    has_any = session.scalar(select(AgentRow.id).limit(1)) is not None
+    has_any = session.scalar(select(AgentRow.id).where(AgentRow.project_id == project_id).limit(1)) is not None
     if data.parent_id is None and has_any:
         raise ParentNotFound("parent_id is required once a root agent already exists")
-    if data.parent_id is not None and session.get(AgentRow, data.parent_id) is None:
+    if data.parent_id is not None and session.get(AgentRow, (project_id, data.parent_id)) is None:
         raise ParentNotFound(f"No agent with id={data.parent_id!r} to attach the new agent to")
 
-    siblings = session.scalars(select(AgentRow).where(AgentRow.parent_id == data.parent_id)).all()
+    siblings = session.scalars(
+        select(AgentRow).where(AgentRow.project_id == project_id, AgentRow.parent_id == data.parent_id)
+    ).all()
     row = AgentRow(
+        project_id=project_id,
         id=data.id,
         parent_id=data.parent_id,
         name=data.name,
@@ -147,6 +170,7 @@ def create_agent(session: Session, data: AgentInput) -> AgentRow:
         voice_stability=data.voice_stability,
         voice_speed=data.voice_speed,
         position=len(siblings),
+        **{k: getattr(data, k) for k in OVERRIDE_FIELDS},
     )
     row.triggers = data.triggers or []
     row.tools = data.tools or []
@@ -156,8 +180,10 @@ def create_agent(session: Session, data: AgentInput) -> AgentRow:
     return row
 
 
-def update_agent(session: Session, agent_id: str, data: AgentInput) -> AgentRow:
-    row = get_row(session, agent_id)
+def update_agent(session: Session, agent_id: str, data: AgentInput, project_id: str = DEFAULT_PROJECT) -> AgentRow:
+    row = get_row(session, agent_id, project_id)
+    for key in OVERRIDE_FIELDS:
+        setattr(row, key, getattr(data, key))
     row.name = data.name
     row.description = data.description
     row.system_prompt = data.system_prompt
@@ -176,65 +202,97 @@ def update_agent(session: Session, agent_id: str, data: AgentInput) -> AgentRow:
     return row
 
 
-def update_layout(session: Session, agent_id: str, x: float, y: float) -> AgentRow:
+def update_layout(session: Session, agent_id: str, x: float, y: float, project_id: str = DEFAULT_PROJECT) -> AgentRow:
     """Blocco 4: persists where the graph view's drag-and-drop left a node.
     Deliberately its own tiny write, separate from update_agent's full-form
     save — dragging a node shouldn't require (or risk clobbering) the rest
     of that agent's fields."""
-    row = get_row(session, agent_id)
+    row = get_row(session, agent_id, project_id)
     row.layout_x = x
     row.layout_y = y
     session.flush()
     return row
 
 
-def _is_descendant(session: Session, ancestor_id: str, candidate_id: str) -> bool:
+def _is_descendant(session: Session, ancestor_id: str, candidate_id: str, project_id: str) -> bool:
     """True if candidate_id is ancestor_id itself, or anywhere below it in
     the tree — walked via parent_id rather than loading the whole tree,
     since a family can be reparented one hop at a time without ever
     materializing AgentSpec for this check."""
     if candidate_id == ancestor_id:
         return True
-    row = session.get(AgentRow, candidate_id)
+    row = session.get(AgentRow, (project_id, candidate_id))
     while row is not None and row.parent_id is not None:
         if row.parent_id == ancestor_id:
             return True
-        row = session.get(AgentRow, row.parent_id)
+        row = session.get(AgentRow, (project_id, row.parent_id))
     return False
 
 
-def reparent_agent(session: Session, agent_id: str, new_parent_id: str) -> AgentRow:
+def reparent_agent(session: Session, agent_id: str, new_parent_id: str, project_id: str = DEFAULT_PROJECT) -> AgentRow:
     """D13 (blocco 4 follow-up): moves an agent (and its whole subtree,
     untouched) under a different parent — what the graph view's
     drag-a-node-onto-another-node does. Its own small write, same shape as
     update_layout: a structural move shouldn't require resending the rest
     of the agent's form, and shouldn't risk clobbering it either."""
-    row = get_row(session, agent_id)
+    row = get_row(session, agent_id, project_id)
     if row.parent_id is None:
         raise CannotReparentRoot(agent_id)
-    new_parent = session.get(AgentRow, new_parent_id)
+    new_parent = session.get(AgentRow, (project_id, new_parent_id))
     if new_parent is None:
         raise ParentNotFound(f"No agent with id={new_parent_id!r} to attach to")
     # Moving a node under itself, or under one of its own descendants,
     # would disconnect part of the tree from the root entirely — walk down
     # from the agent being moved (not up from the target) to catch both.
-    if _is_descendant(session, ancestor_id=agent_id, candidate_id=new_parent_id):
+    if _is_descendant(session, ancestor_id=agent_id, candidate_id=new_parent_id, project_id=project_id):
         raise WouldCreateCycle(f"{new_parent_id!r} is {agent_id!r} itself or one of its own descendants")
     if row.parent_id == new_parent_id:
         return row  # already there — a no-op, not an error
-    siblings = session.scalars(select(AgentRow).where(AgentRow.parent_id == new_parent_id)).all()
+    siblings = session.scalars(
+        select(AgentRow).where(AgentRow.project_id == project_id, AgentRow.parent_id == new_parent_id)
+    ).all()
     row.parent_id = new_parent_id
     row.position = len(siblings)
     session.flush()
     return row
 
 
-def delete_agent(session: Session, agent_id: str) -> None:
-    row = get_row(session, agent_id)
+def delete_agent(session: Session, agent_id: str, project_id: str = DEFAULT_PROJECT) -> None:
+    row = get_row(session, agent_id, project_id)
     if row.parent_id is None:
         raise CannotDeleteRoot(agent_id)
-    has_children = session.scalar(select(AgentRow.id).where(AgentRow.parent_id == agent_id).limit(1))
+    has_children = session.scalar(
+        select(AgentRow.id).where(AgentRow.project_id == project_id, AgentRow.parent_id == agent_id).limit(1)
+    )
     if has_children is not None:
         raise HasChildren(agent_id)
     session.delete(row)
     session.flush()
+
+
+def insert_subtree(session: Session, project_id: str, node: AgentSpec, parent_id: str | None = None, position: int = 0) -> None:
+    """A whole AgentSpec tree into a project (seed, templates, YAML import)."""
+    row = AgentRow(
+        project_id=project_id,
+        id=node.id,
+        parent_id=parent_id,
+        name=node.name,
+        description=node.description,
+        system_prompt=node.system_prompt,
+        eligibility=node.eligibility,
+        first_message=node.first_message,
+        llm_provider=node.llm_provider,
+        llm_model=node.llm_model,
+        llm_temperature=node.llm_temperature,
+        voice_id=node.voice_id,
+        voice_stability=node.voice_stability,
+        voice_speed=node.voice_speed,
+        position=position,
+        **{k: getattr(node, k) for k in OVERRIDE_FIELDS},
+    )
+    row.triggers = node.triggers
+    row.tools = [{"id": t.id, "condition": t.condition} for t in node.tools]
+    row.knowledge = node.knowledge
+    session.add(row)
+    for i, child in enumerate(node.children):
+        insert_subtree(session, project_id, child, parent_id=node.id, position=i)

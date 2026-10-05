@@ -13,6 +13,10 @@ databases:
     ipAllowList: []  # reachable only from Render services in this account
 
 envVarGroups:
+  # Shared by both services. Blocco 8: the model keys are here too, because
+  # the web service runs text tests and reads them to tell the builder which
+  # providers are available (catalog.py), while the worker runs the calls.
+  # Leave a key empty to keep that provider off: it shows as "needs API key".
   - name: voice-orchestrator-voice
     envVars:
       - key: LIVEKIT_URL
@@ -20,6 +24,20 @@ envVarGroups:
       - key: LIVEKIT_API_KEY
         sync: false
       - key: LIVEKIT_API_SECRET
+        sync: false
+      - key: DEEPGRAM_API_KEY
+        sync: false
+      - key: ELEVENLABS_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: GOOGLE_API_KEY
+        sync: false
+      - key: CARTESIA_API_KEY
+        sync: false
+      - key: ASSEMBLYAI_API_KEY
         sync: false
 
 services:
@@ -56,10 +74,6 @@ services:
         fromDatabase:
           name: voice-orchestrator-db
           property: connectionString
-      - key: DEEPGRAM_API_KEY
-        sync: false
-      - key: ELEVENLABS_API_KEY
-        sync: false
       - key: VOICE_ORCH_PROVIDER
         value: fake
       - key: VOICE_ORCH_MAX_CALL_MINUTES_PER_DAY

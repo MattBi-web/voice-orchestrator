@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { Agent, KnowledgeDoc, KnowledgeDocDetail, KnowledgeHit } from '../types'
+import type { KnowledgeDoc, KnowledgeDocDetail, KnowledgeHit } from '../types'
 import { api, ApiError } from '../api'
-import { flatten } from '../tree'
 import { useOwner } from '../auth'
 
 /** Blocco 5 — the knowledge base tab. Documents are the files in
@@ -251,12 +250,10 @@ function DocumentView({
 }
 
 function SearchPreview({
-  root,
   docs,
   currentDoc,
   onOpenHit,
 }: {
-  root: Agent | null
   docs: KnowledgeDoc[]
   currentDoc: string | null
   onOpenHit: (hit: KnowledgeHit) => void
@@ -269,18 +266,19 @@ function SearchPreview({
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
-  const agentsWithKb = useMemo(() => {
-    const ids = new Set(docs.flatMap((d) => d.used_by))
-    return flatten(root).filter((a) => ids.has(a.id))
-  }, [root, docs])
+  // "agent" or, outside the demo, "project/agent" (knowledge_repository).
+  const agentsWithKb = useMemo(() => [...new Set(docs.flatMap((d) => d.used_by))].sort(), [docs])
 
   const run = async (e: React.FormEvent) => {
     e.preventDefault()
     setBusy(true)
     setError(null)
     try {
+      const who = scope.slice(6).split('/')
       const body = scope.startsWith('agent:')
-        ? { query, agent_id: scope.slice(6), top_k: topK }
+        ? who.length === 2
+          ? { query, project_id: who[0], agent_id: who[1], top_k: topK }
+          : { query, agent_id: who[0], top_k: topK }
         : { query, documents: scope.startsWith('doc:') ? [scope.slice(4)] : [], top_k: topK }
       setResult(await api.searchKnowledge(body))
     } catch (err) {
@@ -313,8 +311,8 @@ function SearchPreview({
           {agentsWithKb.length > 0 && (
             <optgroup label="As an agent sees it">
               {agentsWithKb.map((a) => (
-                <option key={a.id} value={`agent:${a.id}`}>
-                  {a.name || a.id}
+                <option key={a} value={`agent:${a}`}>
+                  {a}
                 </option>
               ))}
             </optgroup>
@@ -366,7 +364,7 @@ function SearchPreview({
   )
 }
 
-export function KnowledgeBase({ root }: { root: Agent | null }) {
+export function KnowledgeBase() {
   const owner = useOwner()
   const [docs, setDocs] = useState<KnowledgeDoc[]>([])
   const [pane, setPane] = useState<Pane>({ kind: 'none' })
@@ -442,7 +440,7 @@ export function KnowledgeBase({ root }: { root: Agent | null }) {
             ))}
           </ul>
           <div className="convos__detail">
-            <SearchPreview root={root} docs={docs} currentDoc={currentDoc} onOpenHit={(h) => open(h.document, h.index)} />
+            <SearchPreview docs={docs} currentDoc={currentDoc} onOpenHit={(h) => open(h.document, h.index)} />
             {pane.kind === 'add' ? (
               <AddDocument
                 onAdded={async (name) => {

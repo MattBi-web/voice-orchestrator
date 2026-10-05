@@ -6,6 +6,7 @@ in the package is a focused, independently-testable piece.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Callable  # noqa: F401  (used in a string annotation)
 
 from . import observability
 from .agents.registry import AgentSpec
@@ -31,7 +32,19 @@ def _ensure_started(session: CallSession, root: AgentSpec) -> None:
         session.agent_path = [root.id]
 
 
-def handle_turn(session: CallSession, root: AgentSpec, utterance: str, provider: LLMProvider) -> TurnResult:
+def handle_turn(
+    session: CallSession,
+    root: AgentSpec,
+    utterance: str,
+    provider: LLMProvider,
+    responder: "Callable[[AgentSpec], tuple[LLMProvider, float | None]] | None" = None,
+) -> TurnResult:
+    """`provider` routes (the LLM level) and condenses the history.
+    `responder` picks the provider (and temperature) that writes the
+    answering agent's reply (blocco 8: the project's default LLM or the
+    agent's override, see project.py); None keeps the blocco-2 rule, get_provider_for_agent().
+    The test endpoints pass one that always returns FakeProvider for
+    visitors, so an agent with its own model never spends tokens on them."""
     _ensure_started(session, root)
     session.add_turn("caller", utterance)
 
@@ -97,14 +110,17 @@ def handle_turn(session: CallSession, root: AgentSpec, utterance: str, provider:
     # above (routing shouldn't vary per destination agent) and for
     # summarize() below (it condenses the whole call, not one agent's
     # turn). Only respond() is agent-specific.
-    responder = get_provider_for_agent(current, default=provider)
-    reply = responder.respond(
+    if responder:
+        reply_provider, temperature = responder(current)
+    else:
+        reply_provider, temperature = get_provider_for_agent(current, default=provider), current.llm_temperature
+    reply = reply_provider.respond(
         agent=current,
         utterance=utterance,
         context_summary=session.rolling_summary,
         recent_turns=session.last_turns(2),
         tool_notes=tool_notes,
-        temperature=current.llm_temperature,
+        temperature=temperature,
         caller_notes=caller_notes,
     )
     session.add_turn("agent", reply, agent_id=current.id)

@@ -1,5 +1,10 @@
 import type {
+  AgentPipeline,
   CallEvent,
+  Catalog,
+  ModelSettings,
+  Project,
+  Template,
   Agent,
   AgentInput,
   AgentLayoutUpdate,
@@ -34,6 +39,8 @@ export class ApiError extends Error {
     this.status = status
   }
 }
+
+const P = (pid: string) => `/api/projects/${encodeURIComponent(pid)}`
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
@@ -72,38 +79,51 @@ export const api = {
     request<KnowledgeDoc>('/api/knowledge/from-url', { method: 'POST', body: JSON.stringify(body) }),
   deleteKnowledge: (name: string) =>
     request<void>(`/api/knowledge/${encodeURIComponent(name)}`, { method: 'DELETE' }),
-  searchKnowledge: (body: { query: string; documents?: string[]; agent_id?: string | null; top_k?: number }) =>
+  searchKnowledge: (body: { query: string; documents?: string[]; agent_id?: string | null; project_id?: string; top_k?: number }) =>
     request<KnowledgeSearchResult>('/api/knowledge/search', { method: 'POST', body: JSON.stringify(body) }),
-  getTree: () => request<{ root: Agent | null }>('/api/agents'),
+  // ---- blocco 8: projects ----
+  listProjects: () => request<{ projects: Project[] }>('/api/projects'),
+  getProject: (pid: string) => request<Project>(P(pid)),
+  createProject: (body: { name: string; template: string; description?: string }) =>
+    request<Project>('/api/projects', { method: 'POST', body: JSON.stringify(body) }),
+  updateProject: (pid: string, body: { name: string; description: string; settings: ModelSettings }) =>
+    request<Project>(P(pid), { method: 'PUT', body: JSON.stringify(body) }),
+  deleteProject: (pid: string) => request<void>(P(pid), { method: 'DELETE' }),
+  exportProject: (pid: string) => request<{ yaml: string; json: unknown }>(`${P(pid)}/export`),
+  listTemplates: () => request<{ templates: Template[] }>('/api/templates'),
+  getCatalog: () => request<Catalog>('/api/catalog'),
+  getPipeline: (pid: string, id: string) => request<AgentPipeline>(`${P(pid)}/agents/${encodeURIComponent(id)}/pipeline`),
+  getTree: (pid: string) => request<{ root: Agent | null }>(`${P(pid)}/agents`),
   exportAgents: () => request<ExportResult>('/api/agents/export', { method: 'POST' }),
-  getAgent: (id: string) => request<Agent>(`/api/agents/${encodeURIComponent(id)}`),
-  createAgent: (data: AgentInput) =>
-    request<Agent>('/api/agents', { method: 'POST', body: JSON.stringify(data) }),
-  updateAgent: (id: string, data: AgentUpdateInput) =>
-    request<Agent>(`/api/agents/${encodeURIComponent(id)}`, {
+  getAgent: (pid: string, id: string) => request<Agent>(`${P(pid)}/agents/${encodeURIComponent(id)}`),
+  createAgent: (pid: string, data: AgentInput) =>
+    request<Agent>(`${P(pid)}/agents`, { method: 'POST', body: JSON.stringify(data) }),
+  updateAgent: (pid: string, id: string, data: AgentUpdateInput) =>
+    request<Agent>(`${P(pid)}/agents/${encodeURIComponent(id)}`, {
       method: 'PUT',
       body: JSON.stringify(data),
     }),
-  deleteAgent: (id: string) =>
-    request<void>(`/api/agents/${encodeURIComponent(id)}`, { method: 'DELETE' }),
-  updateAgentLayout: (id: string, layout: AgentLayoutUpdate) =>
-    request<Agent>(`/api/agents/${encodeURIComponent(id)}/layout`, {
+  deleteAgent: (pid: string, id: string) =>
+    request<void>(`${P(pid)}/agents/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  updateAgentLayout: (pid: string, id: string, layout: AgentLayoutUpdate) =>
+    request<Agent>(`${P(pid)}/agents/${encodeURIComponent(id)}/layout`, {
       method: 'PATCH',
       body: JSON.stringify(layout),
     }),
-  reparentAgent: (id: string, body: AgentReparentRequest) =>
-    request<Agent>(`/api/agents/${encodeURIComponent(id)}/parent`, {
+  reparentAgent: (pid: string, id: string, body: AgentReparentRequest) =>
+    request<Agent>(`${P(pid)}/agents/${encodeURIComponent(id)}/parent`, {
       method: 'PATCH',
       body: JSON.stringify(body),
     }),
   listTools: () => request<{ tools: string[] }>('/api/tools'),
   // ---- blocco 7, fase B: multi-turn text tests ----
-  startConversation: (startAgentId: string | null, channel: string, useConfiguredProvider: boolean) =>
+  startConversation: (pid: string, startAgentId: string | null, channel: string, useConfiguredProvider: boolean) =>
     request<{ id: string; greeting: Extract<CallEvent, { type: 'greeting' }> | null; simulated: boolean; provider: string }>(
       '/api/test/conversations',
       {
         method: 'POST',
         body: JSON.stringify({
+          project_id: pid,
           start_agent_id: startAgentId,
           channel,
           use_configured_provider: useConfiguredProvider,
@@ -126,15 +146,17 @@ export const api = {
         use_configured_provider: useConfiguredProvider,
       }),
     }),
-  getLlmStatus: () => request<LlmStatus>('/api/llm/status'),
+  getLlmStatus: (pid: string) => request<LlmStatus>(`/api/llm/status?project_id=${encodeURIComponent(pid)}`),
   getVoiceStatus: () => request<VoiceStatus>('/api/voice/status'),
-  getVoiceToken: () => request<VoiceToken>('/api/voice/token', { method: 'POST' }),
-  getCallStats: (includeTest: boolean, days = 14) =>
-    request<CallStats>(`/api/calls/stats?days=${days}&include_test=${includeTest}`),
+  getVoiceToken: (pid: string) =>
+    request<VoiceToken>('/api/voice/token', { method: 'POST', body: JSON.stringify({ project_id: pid }) }),
+  getCallStats: (includeTest: boolean, days = 14, project = '') =>
+    request<CallStats>(`/api/calls/stats?days=${days}&include_test=${includeTest}${project ? `&project=${encodeURIComponent(project)}` : ''}`),
   // The recent-calls table always shows everything, source column included
   // (test routes are visible, not filtered) — only the tiles/charts above it
   // react to "include test calls".
-  getCalls: (limit = 20) => request<{ calls: CallRecord[] }>(`/api/calls?limit=${limit}`),
+  getCalls: (limit = 20, project = '') =>
+    request<{ calls: CallRecord[] }>(`/api/calls?limit=${limit}${project ? `&project=${encodeURIComponent(project)}` : ''}`),
   listMcpServers: () => request<{ servers: McpServer[] }>('/api/mcp-servers'),
   createMcpServer: (data: McpServer) =>
     request<McpServer>('/api/mcp-servers', { method: 'POST', body: JSON.stringify(data) }),

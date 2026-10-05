@@ -4,6 +4,7 @@ import { api, ApiError } from '../api'
 import { useOwner } from '../auth'
 
 interface Props {
+  pid: string
   root: Agent | null
   selectedId: string | null
   onSelect: (id: string) => void
@@ -109,7 +110,7 @@ function edgeLevels(child: Agent): { gate: boolean; selector: 'pattern' | 'llm' 
   return { gate: Boolean(child.eligibility), selector: child.triggers.length > 0 ? 'pattern' : 'llm' }
 }
 
-export function AgentGraph({ root, selectedId, onSelect, onAddChild, onChanged }: Props) {
+export function AgentGraph({ pid, root, selectedId, onSelect, onAddChild, onChanged }: Props) {
   const owner = useOwner()
   const nodes = useMemo(() => (root ? flattenWithParent(root) : []), [root])
   const auto = useMemo(() => (root ? autoLayout(root) : new Map<string, Pos>()), [root])
@@ -149,7 +150,7 @@ export function AgentGraph({ root, selectedId, onSelect, onAddChild, onChanged }
   const persistLayout = (id: string, pos: Pos) => {
     if (saveTimer.current) clearTimeout(saveTimer.current)
     saveTimer.current = setTimeout(() => {
-      api.updateAgentLayout(id, { layout_x: pos.x, layout_y: pos.y }).catch(() => {
+      api.updateAgentLayout(pid, id, { layout_x: pos.x, layout_y: pos.y }).catch(() => {
         // Best-effort: a failed layout save just means the node snaps back
         // to its auto position next reload — never worth surfacing an
         // error banner over where a box sits on screen.
@@ -229,7 +230,7 @@ export function AgentGraph({ root, selectedId, onSelect, onAddChild, onChanged }
     }
 
     api
-      .reparentAgent(drag.id, { parent_id: target.id })
+      .reparentAgent(pid, drag.id, { parent_id: target.id })
       .then(() => onChanged())
       .catch((err) => {
         alert(err instanceof ApiError ? err.message : String(err))
@@ -242,10 +243,15 @@ export function AgentGraph({ root, selectedId, onSelect, onAddChild, onChanged }
     const newId = prompt(`ID for the copy of "${agent.id}"`, `${agent.id}_copy`)
     if (!newId || !newId.trim()) return
     try {
-      await api.createAgent({
+      await api.createAgent(pid, {
         id: newId.trim(),
+        tts_provider: agent.tts_provider,
+        tts_model: agent.tts_model,
+        stt_provider: agent.stt_provider,
+        stt_model: agent.stt_model,
+        stt_language: agent.stt_language,
         parent_id: agent.parent_id,
-        name: `${agent.name} (copia)`,
+        name: `${agent.name} (copy)`,
         description: agent.description,
         system_prompt: agent.system_prompt,
         eligibility: agent.eligibility,

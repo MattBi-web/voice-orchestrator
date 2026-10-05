@@ -55,6 +55,9 @@ class CallRecord:
     # [{"speaker", "text", "agent_id", "timestamp", "routing"?, "handoff"?, "tools"?}]
     # — see transcript_from_session(). Default [] keeps pre-transcript lines loadable.
     turns: list[dict[str, Any]] = field(default_factory=list)
+    # Blocco 8: which project (phone line) the call was on. Records from
+    # before projects belong to the demo, which is what they were.
+    project_id: str = "demo"
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -139,6 +142,7 @@ def from_session(
     source: str,
     started_at: datetime,
     ended_at: datetime | None = None,
+    project_id: str = "demo",
 ) -> CallRecord:
     """Builds the record purely from what `CallSession` already tracks —
     `routing_stats()`, `event_log`, `handoff_log` — so this is a summary of
@@ -158,6 +162,7 @@ def from_session(
         tool_counts=_tool_counts(session),
         handoffs=len(session.handoff_log),
         turns=transcript_from_session(session),
+        project_id=project_id,
     )
 
 

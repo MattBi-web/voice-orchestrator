@@ -3,7 +3,7 @@
 Documento di lavoro: tiene traccia di dove siamo, dove vogliamo arrivare e perché.
 Si aggiorna a ogni feature, nello stesso commit del codice.
 
-Ultimo aggiornamento: 2026-10-05 (blocco 7, fase B: blocco 7 completo)
+Ultimo aggiornamento: 2026-10-05 (blocco 8: progetti, modelli per pezzo della pipeline, interfaccia da piattaforma)
 
 ---
 
@@ -375,6 +375,79 @@ priorità al **visitatore che arriva dal link**: ordine A → D → C → B.
       parola chiave di una chiamata passata si ricostruiscono dalla famiglia attuale, perché il
       registro salva la decisione ma non la regola.
 
+### Blocco 8 — Piattaforma: progetti e modelli per pezzo  ✅ consegnato
+
+Perché (Matteo, 2026-10-05): l'interfaccia doveva diventare una piattaforma vera, sul modello di
+ElevenLabs Agents e Vapi (restando chiara): creare un **agente singolo** o una **famiglia
+(workflow)**, scegliere i modelli di **STT, TTS e LLM** dell'agente che parla e il **modello del
+router**, e vedere i pezzi di cui è fatto ogni agente, così da servire anche a uno sviluppatore.
+
+Decisioni (Matteo): **più progetti**, ognuno una linea telefonica; i modelli si scelgono **per
+progetto** e ogni agente li **eredita**, con **override** di qualsiasi pezzo dalla pagina
+dell'agente (STT compreso: livekit permette di cambiarlo al passaggio di agente); **catalogo
+onesto**: si elencano più provider, ma si possono scegliere solo quelli installati e con la chiave.
+
+- **Modello dati.** Nuova tabella `projects` (nome, descrizione, `settings` = i modelli di
+  default, `project.ModelSettings`). `agents` ha ora `project_id` nella chiave primaria: gli id
+  degli agenti sono unici per progetto, quindi due progetti dallo stesso template hanno entrambi un
+  `receptionist`. Nuovi override per agente: `tts_provider`, `tts_model`, `stt_provider`,
+  `stt_model`, `stt_language` (accanto a quelli del blocco 2). Un DB di prima dei progetti (il
+  SQLite sul Mac) viene migrato all'avvio: gli agenti finiscono sotto il progetto `demo`
+  (`db.migrate_agents_to_projects`, provato su SQLite e su Postgres 16). Il YAML ha un blocco
+  `project:` facoltativo con nome, descrizione e modelli; la CLI `chat` lo usa.
+- **Risoluzione (core, `project.py`).** Campo per campo: vuoto = eredita dal progetto. Una regola
+  tiene coerenti gli override: un agente che cambia *provider* non eredita modello e voce del
+  progetto (appartengono all'altro provider). Il router usa il suo modello o, se non scelto, quello
+  degli agenti; senza nessuna scelta resta `VOICE_ORCH_PROVIDER`. `orchestrator.handle_turn()` ha
+  un parametro `responder` (agente → provider e temperatura). Le stesse regole valgono per il
+  worker vocale, i test testuali, la pagina (mirror in `web/src/resolve.ts`) e l'endpoint
+  `/pipeline`, tutte pinnate da `tests/test_projects.py`.
+- **Catalogo (`catalog.py`, `GET /api/catalog`).** STT: Deepgram, OpenAI, AssemblyAI. TTS:
+  ElevenLabs (con voci), OpenAI (voci), Cartesia. LLM: Anthropic, OpenAI, Gemini, più "nessun
+  modello". Ogni voce dice se è disponibile su questo server o cosa manca ("needs
+  OPENAI_API_KEY"); i modelli sono suggerimenti e "Other…" accetta qualsiasi id. Le chiavi dei
+  modelli sono ora nel gruppo env condiviso di `render.yaml` (web e worker): vuote = provider
+  spento. Plugin livekit OpenAI/Cartesia/AssemblyAI nell'extra `voice`, SDK OpenAI/Gemini nelle
+  immagini Docker. **Non verificato dal vivo:** OpenAI, Cartesia, AssemblyAI, Anthropic e Gemini,
+  perché in `.env.save` le loro chiavi sono vuote; il codice c'è, la UI non li lascia scegliere
+  finché la chiave manca.
+- **Voce (`voice/providers.py`, `agent.py`, `worker.py`).** Il nome della stanza porta il
+  progetto (`webtest-<progetto>--<random>`), il worker carica famiglia e modelli di quel progetto,
+  avvia la sessione con la pipeline del receptionist e al passaggio di agente cambia **TTS e STT**
+  se l'agente li sovrascrive (`update_options`), con un log `pipeline: …` a ogni cambio.
+  **Verificato in una stanza LiveKit vera** (`scripts/d12_room_e2e.py --blocco8`): lo specialista
+  billing con override ElevenLabs Turbo + voce maschile e Deepgram nova-2 in italiano; voce
+  cambiata all'handoff, "arrivederci" capito dallo STT dello specialista, eventi in ordine, stanza
+  chiusa dopo il saluto: tutti OK. **Trovato strada facendo:** un modello vero che fallisce (chiave
+  vuota o sbagliata) faceva cadere il turno, e il chiamante restava in silenzio. Ora in chiamata il
+  provider è avvolto in `llm.ResilientProvider`: routing con le regole di riserva, una frase di scuse
+  al posto della risposta, errore nel log. I test testuali invece mostrano l'errore (502).
+- **Sicurezza visitatori.** Prima un agente con un LLM proprio rispondeva col modello vero anche
+  nel test dei visitatori; con l'ereditarietà dal progetto sarebbe diventato un costo reale. Ora
+  per i visitatori router e risposte sono sempre FakeProvider (test dedicato). Le chiamate vocali
+  dei visitatori usano i modelli del progetto, limitate dal tetto di minuti al giorno.
+- **API.** `GET/POST /api/projects`, `GET/PUT/DELETE /api/projects/{id}`, `…/export` (YAML e JSON),
+  `GET /api/templates`, gli endpoint degli agenti sotto `/api/projects/{id}/agents…` (gli stessi
+  handler restano su `/api/agents…` per il progetto demo, quindi CLI, test e script esistenti non
+  cambiano), `…/agents/{id}/pipeline`. Test, conversazioni, token vocale, chiamate e statistiche
+  prendono il progetto. I documenti di knowledge e i tool restano condivisi tra progetti.
+- **Interfaccia.** Link condivisibili (`#/agents/<progetto>/<tab>/<agente>`). **Agents** è
+  l'elenco dei progetti (tipo, voce, modello, chiamate) con **New agent**: nome e partenza da
+  *Single agent*, *Workflow* (receptionist + due specialisti) o *Copy of Meridian Telecom*.
+  La pagina del progetto ha quattro tab: **Build** (elenco o grafo, pagina dell'agente, test a
+  lato; per un agente singolo niente albero e un invito ad aggiungere uno specialista), **Models**
+  (i default del progetto per STT, router, LLM, TTS), **Calls** (solo quelle del progetto),
+  **Developer** (id, pipeline risolta dal server per ogni agente, configurazione YAML/JSON da
+  copiare o scaricare, curl delle API). L'elemento forte della pagina è la **pipeline**: Speech to
+  text → Router (gate, pattern, LLM) → Language model → Tools → Text to speech, ognuno col modello
+  che userà davvero, l'etichetta *Project default* / *Override* / *Server default* e l'avviso se
+  non può girare qui; si aggiorna mentre si modifica e un clic apre la scheda giusta. La scheda
+  Models dell'agente ha per ogni pezzo l'interruttore "Project default / Override". La pagina di
+  chiamata sceglie quale agente chiamare. Calls e Analytics globali hanno un filtro per progetto e
+  i nomi giusti degli agenti di ogni progetto. Tolte le etichette tutte maiuscole.
+- **Limiti noti.** La stanza vocale non porta altro che il progetto: niente variabili per
+  chiamata. Criteri di valutazione ancora globali, non per progetto.
+
 ### Escluso di proposito (per ora)
 
 Telefonia (numeri, SIP, batch outbound), widget embeddabile, versioning con branch/merge,
@@ -439,6 +512,9 @@ infrastruttura che nessuna rifinitura della UI chiude.
 | 2026-10 | Blocco 5: la ricerca scarta i chunk con punteggio 0 invece di restituire "i migliori tra niente" | un passaggio senza nessuna parola in comune con la domanda non è grounding, è rumore che il modello (o FakeProvider) presenta come risposta |
 | 2026-10 | Blocco 5: "aggiungi da URL" controlla l'host a ogni richiesta (redirect inclusi) e rifiuta indirizzi locali/privati | la pagina la scarica il server: senza controllo, il campo URL leggerebbe qualsiasi servizio raggiungibile dalla sua rete |
 | 2026-10 | Blocco 3: log delle esecuzioni webhook in un JSONL dedicato (`data/webhook_log.jsonl`, `tools/webhook_log.py`), non negli `attributes` di `CallSession.event_log`/`call_log.jsonl` | stesso principio di `call_log.py`: il tool che fa la chiamata HTTP (e quindi `orchestrator.py`, la CLI, il worker vocale che lo importano) deve restare installabile con zero dipendenze `webapi` (niente sqlalchemy/fastapi); un file JSONL separato ottiene lo stesso risultato senza toccare `orchestrator.py` o lo schema di `CallRecord` |
+| 2026-10 | Blocco 8: modelli scelti per progetto ed ereditati campo per campo dagli agenti; un agente che cambia provider non eredita modello/voce | un default unico per linea telefonica e override solo dove servono; ereditare il modello di un altro provider darebbe una combinazione invalida |
+| 2026-10 | Blocco 8: id agente unico per progetto (`project_id` nella chiave primaria) invece di id globali prefissati | due progetti dallo stesso template devono poter avere entrambi `receptionist`; il prezzo è una migrazione una tantum, fatta prima del primo deploy |
+| 2026-10 | Blocco 8: in chiamata un modello che fallisce dà una frase di scuse (`ResilientProvider`), nei test testuali un errore 502 | al telefono il silenzio è il guasto peggiore; chi prova dal builder invece deve vedere l'errore per correggerlo |
 
 ---
 
@@ -466,4 +542,5 @@ infrastruttura che nessuna rifinitura della UI chiude.
 | `216d3be` | Blocco 7, fase A: nuova struttura con menu laterale, pagina Tools, sistema visivo (Plex, verde centralino, colori dei livelli del router), interfaccia e messaggi del backend in inglese |
 | `946dbc1` | Blocco 7, fase D: pagina Overview con dimostrazione dal vivo del router; corretti il trigger `problema` della demo, la regressione D10 sui testi vuoti e il prefisso dei tool MCP nelle risposte |
 | `055d21b` | Blocco 7, fase C: chiamata in vetrina — eventi di routing dal worker al browser sul data channel LiveKit, pagina di chiamata come timeline spiegata turno per turno, chiamata d'esempio generata dal router vero |
-| (questo commit) | Blocco 7, fase B: vista Agents a tre colonne con pagina dell'agente a schede e pannello di test a più turni (`/api/test/conversations`), grafo senza groviglio, trascrizioni di Calls con la stessa timeline della chiamata |
+| `a449661` | Blocco 7, fase B: vista Agents a tre colonne con pagina dell'agente a schede e pannello di test a più turni (`/api/test/conversations`), grafo senza groviglio, trascrizioni di Calls con la stessa timeline della chiamata |
+| (questo commit) | Blocco 8: progetti (agente singolo o workflow, da template), modelli di default per progetto con override per agente su STT/TTS/LLM e modello del router, catalogo provider onesto, pipeline visibile per agente, tab Developer (YAML/JSON, API), chiamate e analytics per progetto; il worker cambia STT e TTS al passaggio di agente (verificato in una stanza LiveKit vera) e una chiamata non resta muta se un modello fallisce |

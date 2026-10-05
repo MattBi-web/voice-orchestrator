@@ -1,0 +1,32 @@
+# Template: a receptionist that hands the call to two specialists (blocco 8).
+# Each specialist is reached by its keywords (the pattern level); when no
+# keyword settles it, the router's LLM picks from the descriptions.
+template:
+  name: "Workflow"
+  description: "A receptionist routes each call to the right specialist. Rename them, add more, set keywords and gates."
+root:
+  id: receptionist
+  name: "Receptionist"
+  description: "Greets the caller and finds out what they need."
+  system_prompt: >
+    You are the receptionist. Greet the caller, understand what they need
+    and let the right specialist take over. Don't solve the request yourself.
+  first_message: "Buongiorno, come posso aiutarla?"
+  tools: ["transfer_to_human", "end_call"]
+  children:
+    - id: sales
+      name: "Sales"
+      description: "New customers, prices, offers and plans."
+      triggers: ["prezz", "offert", "abbonament", "costo"]
+      system_prompt: >
+        You are the sales specialist. Explain offers and prices briefly and
+        ask one question at a time.
+      tools: ["transfer_to_human", "end_call"]
+    - id: support
+      name: "Support"
+      description: "Problems with a product or service the caller already has."
+      triggers: ["problema", "guasto", "non funziona", "assistenza"]
+      system_prompt: >
+        You are the support specialist. Find out what's wrong, suggest one
+        step at a time, and offer a human if it isn't solved.
+      tools: ["transfer_to_human", "end_call"]

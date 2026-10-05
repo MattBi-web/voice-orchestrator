@@ -43,7 +43,8 @@ import logging
 
 from .. import call_events, config
 from ..agents.registry import AgentSpec
-from ..llm import FakeProvider
+from ..project import stt_for, tts_for
+from .providers import choice_key, make_stt, make_tts
 from .bridge import VoiceBridge, is_actionable
 
 # Same model everywhere: the session default in worker.py and every
@@ -68,6 +69,14 @@ _DEFAULT_INSTRUCTIONS = (
     "exists only because LiveKit's Agent base class requires some "
     "`instructions` string at construction time."
 )
+
+
+def _overrides_tts(agent: AgentSpec) -> bool:
+    return bool(agent.tts_provider or agent.tts_model or agent.voice_id or agent.voice_stability is not None or agent.voice_speed is not None)
+
+
+def _overrides_stt(agent: AgentSpec) -> bool:
+    return bool(agent.stt_provider or agent.stt_model or agent.stt_language)
 
 
 def _latest_user_text(chat_ctx: "llm.ChatContext") -> str:
@@ -125,14 +134,18 @@ class OrchestratorAgent(Agent):
         # real ElevenLabs one below; tests pass a fake, the live check wraps
         # the real one to record which voice synthesized what.
         self._voice_factory = voice_factory
-        # Per-agent ElevenLabs TTS instances (blocco 2, fixes D1), cached by
-        # (voice_id, stability, speed) — elevenlabs.TTS() doesn't open a
-        # network connection at construction time, so this just avoids
-        # rebuilding the Python object on every single turn.
-        self._tts_cache: dict[tuple[str, float | None, float | None], tts.TTS] = {}
-        # The TTS the pipeline is currently set to; None = the session's
-        # default (worker.py), which is also the starting state.
+        # Blocco 8: TTS and STT instances per resolved choice (project
+        # default or agent override, project.py), built once and reused.
+        self._tts_cache: dict[tuple, tts.TTS] = {}
+        self._stt_cache: dict[tuple, object] = {}
+        # What the session was started with (worker.py: the root agent's
+        # pipeline); an agent resolving to the same choice uses the session's
+        # own instance. None until worker.py/the harness sets it.
+        self.default_tts_key: tuple | None = None
+        self.default_stt_key: tuple | None = None
+        # The TTS/STT the pipeline is currently set to; None = the session's.
         self._active_tts: tts.TTS | None = None
+        self._active_stt: object | None = None
         self._hangup_scheduled = False
         # Set by tests / the live check to observe the hangup instead of
         # deleting a room; see _end_call().
@@ -144,45 +157,51 @@ class OrchestratorAgent(Agent):
         self._turn_seq = 0
 
     def _tts_for_agent(self, agent: AgentSpec) -> tts.TTS | None:
-        """None when the agent has no voice_id override — apply_voice()
-        then goes back to the TTS AgentSession was built with in worker.py."""
-        if not agent.voice_id:
+        """None when the agent's resolved TTS is the one the session started
+        with (worker.py) — apply_voice() then goes back to the session's own
+        instance. Otherwise the agent's own, from its override or the
+        project default (blocco 8)."""
+        choice = tts_for(agent, self._bridge.settings)
+        key = choice_key(choice)
+        if key == self.default_tts_key or (self.default_tts_key is None and not _overrides_tts(agent)):
             return None
-        key = (agent.voice_id, agent.voice_stability, agent.voice_speed)
         cached = self._tts_cache.get(key)
-        if cached is not None:
-            return cached
-        if self._voice_factory is not None:
-            voice = self._voice_factory(agent)
-            self._tts_cache[key] = voice
-            return voice
-        extra: dict = {}
-        if agent.voice_stability is not None or agent.voice_speed is not None:
-            settings_kwargs: dict = {
-                "stability": agent.voice_stability if agent.voice_stability is not None else 0.5,
-                "similarity_boost": 0.75,
-            }
-            if agent.voice_speed is not None:
-                settings_kwargs["speed"] = agent.voice_speed
-            extra["voice_settings"] = elevenlabs.VoiceSettings(**settings_kwargs)
-        voice = elevenlabs_tts(voice_id=agent.voice_id, **extra)
-        self._tts_cache[key] = voice
-        return voice
+        if cached is None:
+            cached = self._voice_factory(agent) if self._voice_factory is not None else make_tts(choice)
+            self._tts_cache[key] = cached
+        return cached
+
+    def _stt_for_agent(self, agent: AgentSpec) -> object | None:
+        choice = stt_for(agent, self._bridge.settings)
+        key = choice_key(choice)
+        if key == self.default_stt_key or (self.default_stt_key is None and not _overrides_stt(agent)):
+            return None
+        cached = self._stt_cache.get(key)
+        if cached is None:
+            cached = make_stt(choice)
+            self._stt_cache[key] = cached
+        return cached
 
     def apply_voice(self, agent: AgentSpec | None) -> None:
-        """Point the pipeline at `agent`'s voice (or back at the session's
-        default if it has none) — a no-op when it's already the right one,
-        so calling it on every turn costs nothing until a handoff actually
-        changes the voice. Must run before the reply's text reaches
-        tts_node: llm_node calls it before yielding, worker.py before the
-        root's first_message."""
+        """Point the pipeline at `agent`'s TTS and STT (or back at the
+        session's defaults) — a no-op when they're already the right ones,
+        so calling it on every turn costs nothing until a handoff changes
+        something. Must run before the reply's text reaches tts_node:
+        llm_node calls it before yielding, worker.py before the root's
+        first_message. STT applies from the caller's next utterance."""
         target = self._tts_for_agent(agent) if agent else None
-        if target is self._active_tts:
-            return
-        # update_options(tts=...) wires metrics/error handlers and prewarms
-        # the new TTS; the session's own instance stands for "no override".
-        self.update_options(tts=target if target is not None else self.session.tts)
-        self._active_tts = target
+        if target is not self._active_tts:
+            # update_options(tts=...) wires metrics/error handlers and
+            # prewarms the new TTS; the session's own instance stands for
+            # "no override".
+            self.update_options(tts=target if target is not None else self.session.tts)
+            self._active_tts = target
+            logging.getLogger(__name__).info("pipeline: %s speaks with %s", agent.id if agent else "-", tts_for(agent, self._bridge.settings).as_dict() if agent else "default")
+        listener = self._stt_for_agent(agent) if agent else None
+        if listener is not self._active_stt:
+            self.update_options(stt=listener if listener is not None else self.session.stt)
+            self._active_stt = listener
+            logging.getLogger(__name__).info("pipeline: %s listens with %s", agent.id if agent else "-", stt_for(agent, self._bridge.settings).as_dict() if agent else "default")
 
     async def llm_node(
         self,
@@ -210,7 +229,7 @@ class OrchestratorAgent(Agent):
                 result,
                 self._bridge.session,
                 self._turn_seq,
-                simulated=isinstance(self._bridge.provider, FakeProvider),
+                simulated=self._bridge.is_simulated(result.agent),
             )
         )
         # Voice of whoever answered *this* turn — after handle_turn(), so a

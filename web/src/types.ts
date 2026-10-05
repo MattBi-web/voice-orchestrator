@@ -19,6 +19,85 @@ export interface AgentVoiceOverride {
   voice_id: string
   voice_stability: number | null
   voice_speed: number | null
+  // Blocco 8: the rest of the pipeline, "" = inherit the project's.
+  tts_provider: string
+  tts_model: string
+  stt_provider: string
+  stt_model: string
+  stt_language: string
+}
+
+/** Blocco 8: a project's default models (project.ModelSettings). */
+export interface ModelSettings {
+  stt_provider: string
+  stt_model: string
+  stt_language: string
+  tts_provider: string
+  tts_model: string
+  voice_id: string
+  voice_stability: number | null
+  voice_speed: number | null
+  llm_provider: string
+  llm_model: string
+  llm_temperature: number | null
+  router_provider: string
+  router_model: string
+}
+
+export interface Project {
+  id: string
+  name: string
+  description: string
+  created_at: string
+  updated_at: string
+  kind: 'single' | 'workflow'
+  agent_count: number
+  root_agent: { id: string; name: string } | null
+  settings: ModelSettings
+  call_count?: number
+}
+
+export interface Template {
+  id: 'single' | 'workflow' | 'demo'
+  name: string
+  description: string
+  agent_count: number
+}
+
+export type Component = 'stt' | 'tts' | 'llm'
+
+export interface CatalogProvider {
+  component: Component
+  id: string
+  label: string
+  models: string[]
+  default_model: string
+  voices: { id: string; label: string }[]
+  languages: string[]
+  available: boolean
+  missing: string
+  note: string
+}
+
+export type Catalog = Record<Component, CatalogProvider[]>
+
+export interface PipelineStep {
+  component: 'stt' | 'router' | 'llm' | 'tts'
+  provider: string
+  model: string
+  source: 'agent' | 'project' | 'deployment'
+  available: boolean
+  language?: string
+  voice_id?: string
+  temperature?: number | null
+}
+
+export interface AgentPipeline {
+  agent_id: string
+  steps: PipelineStep[]
+  routing: { children: { id: string; name: string; eligibility: string; triggers: string[] }[] }
+  tools: ToolBinding[]
+  knowledge: string[]
 }
 
 export interface Agent extends AgentLlmOverride, AgentVoiceOverride {
@@ -131,6 +210,7 @@ export interface VoiceToken {
 // dashboard (Dashboard.tsx) reads these straight from GET /api/calls*.
 export interface CallRecord {
   call_id: string
+  project_id: string
   source: 'chat' | 'voice' | 'route_test'
   channel: string
   started_at: string

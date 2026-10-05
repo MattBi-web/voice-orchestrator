@@ -35,6 +35,11 @@ class AgentIn(BaseModel):
     voice_id: str = ""
     voice_stability: float | None = None
     voice_speed: float | None = None
+    tts_provider: str = ""
+    tts_model: str = ""
+    stt_provider: str = ""
+    stt_model: str = ""
+    stt_language: str = ""
 
 
 class AgentUpdate(BaseModel):
@@ -52,6 +57,11 @@ class AgentUpdate(BaseModel):
     voice_id: str = ""
     voice_stability: float | None = None
     voice_speed: float | None = None
+    tts_provider: str = ""
+    tts_model: str = ""
+    stt_provider: str = ""
+    stt_model: str = ""
+    stt_language: str = ""
 
 
 class AgentLayoutUpdate(BaseModel):
@@ -88,6 +98,11 @@ class AgentOut(BaseModel):
     voice_id: str
     voice_stability: float | None
     voice_speed: float | None
+    tts_provider: str = ""
+    tts_model: str = ""
+    stt_provider: str = ""
+    stt_model: str = ""
+    stt_language: str = ""
     layout_x: float | None = None
     layout_y: float | None = None
     children: list["AgentOut"] = Field(default_factory=list)
@@ -116,6 +131,11 @@ def row_to_out(row: AgentRow, children: list[AgentOut] | None = None) -> AgentOu
         voice_id=row.voice_id,
         voice_stability=row.voice_stability,
         voice_speed=row.voice_speed,
+        tts_provider=row.tts_provider,
+        tts_model=row.tts_model,
+        stt_provider=row.stt_provider,
+        stt_model=row.stt_model,
+        stt_language=row.stt_language,
         layout_x=row.layout_x,
         layout_y=row.layout_y,
         children=children,
@@ -137,8 +157,22 @@ def build_agent_out_tree(rows: list[AgentRow]) -> AgentOut | None:
     return root
 
 
+class ProjectIn(BaseModel):
+    name: str
+    description: str = ""
+    # "single" | "workflow" | "demo" (project_repository.templates())
+    template: str = "single"
+
+
+class ProjectUpdate(BaseModel):
+    name: str
+    description: str = ""
+    settings: dict = Field(default_factory=dict)
+
+
 class TestRouteRequest(BaseModel):
     utterance: str
+    project_id: str = "demo"
     start_agent_id: str | None = None  # defaults to the family's root
     channel: str = "voice"
     slots: dict = Field(default_factory=dict)
@@ -292,5 +326,6 @@ class KnowledgeSearchIn(BaseModel):
     query: str
     documents: list[str] = Field(default_factory=list)
     agent_id: str | None = None
+    project_id: str = "demo"
     top_k: int = Field(default=3, ge=1, le=20)
 

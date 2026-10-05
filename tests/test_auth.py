@@ -49,7 +49,11 @@ def test_visitor_reads_but_cannot_write(client):
 def test_visitor_demo_features_stay_open_and_free(client, monkeypatch):
     from voice_orchestrator.webapi import app as app_module
 
-    monkeypatch.setattr(app_module, "get_provider", lambda *a, **k: pytest.fail("visitor reached the paid provider"))
+    from voice_orchestrator import project as project_module
+
+    paid = lambda *a, **k: pytest.fail("visitor reached the paid provider")  # noqa: E731
+    monkeypatch.setattr(app_module, "get_provider", paid)
+    monkeypatch.setattr(project_module, "cached_provider", paid)
     r = client.post("/api/test/route", json={"utterance": "il wifi non va", "use_configured_provider": True})
     assert r.status_code == 200 and r.json()["provider"] == "FakeProvider"
     assert client.post("/api/knowledge/search", json={"query": "router"}).status_code == 200

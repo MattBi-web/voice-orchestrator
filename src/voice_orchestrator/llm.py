@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import os
 import re
+import logging
 from abc import ABC, abstractmethod
 
 from . import config
@@ -31,6 +32,9 @@ _STOPWORDS = {
     "un", "una", "il", "la", "lo", "gli", "le", "di", "a", "da", "in", "con",
     "su", "per", "tra", "fra", "e", "o", "che", "non", "si", "è", "del", "della",
 }
+
+
+_log = logging.getLogger(__name__)
 
 
 class LLMProvider(ABC):
@@ -268,6 +272,44 @@ class GeminiProvider(LLMProvider):
         return self._complete(f"Condense into 2-3 sentences.\n{previous_summary}\n{_format_turns(turns)}")
 
 
+class ResilientProvider(LLMProvider):
+    """Blocco 8, for live calls only: a model that fails mid-call (bad or
+    missing key, network, rate limit) must not leave the caller in silence.
+    Routing falls back to FakeProvider's rules, a reply to a short apology,
+    and the error is logged. The text-test endpoints don't use this: there a
+    failure is shown to the person testing (502), which is more useful.
+    `is_fake` lets the call page still tell a real model from a stand-in."""
+
+    FALLBACK_REPLY = "Mi scusi, in questo momento non riesco a rispondere. Può ripetere tra poco?"
+
+    def __init__(self, inner: LLMProvider) -> None:
+        self.inner = inner
+        self._fake = FakeProvider()
+
+    def classify(self, utterance, candidates, current_agent_id, session):
+        try:
+            return self.inner.classify(utterance, candidates, current_agent_id, session)
+        except Exception:
+            _log.exception("%s.classify failed; routing with the fallback rules", type(self.inner).__name__)
+            return self._fake.classify(utterance, candidates, current_agent_id, session)
+
+    def respond(self, agent, utterance, context_summary, recent_turns, tool_notes, temperature=None, caller_notes=None):
+        try:
+            return self.inner.respond(
+                agent, utterance, context_summary, recent_turns, tool_notes, temperature=temperature, caller_notes=caller_notes
+            )
+        except Exception:
+            _log.exception("%s.respond failed; apologizing to the caller", type(self.inner).__name__)
+            return self.FALLBACK_REPLY
+
+    def summarize(self, previous_summary, turns):
+        try:
+            return self.inner.summarize(previous_summary, turns)
+        except Exception:
+            _log.exception("%s.summarize failed; keeping the previous summary", type(self.inner).__name__)
+            return previous_summary
+
+
 def get_provider(name: str | None = None, model: str | None = None) -> LLMProvider:
     name = (name or config.PROVIDER).lower()
     kwargs = {} if not model else {"model": model}
@@ -291,6 +333,17 @@ def get_provider(name: str | None = None, model: str | None = None) -> LLMProvid
 # because the whole point is that two different calls routing into the same
 # agent share one client.
 _agent_provider_cache: dict[tuple[str, str], LLMProvider] = {}
+
+
+def cached_provider(name: str, model: str = "") -> LLMProvider:
+    """get_provider() with the same process-wide cache as below (blocco 8:
+    project defaults resolve through here too). "fake" or "" = FakeProvider."""
+    key = ((name or "fake").lower(), model or "")
+    cached = _agent_provider_cache.get(key)
+    if cached is None:
+        cached = get_provider(name or "fake", model=model or None)
+        _agent_provider_cache[key] = cached
+    return cached
 
 
 def get_provider_for_agent(agent: AgentSpec, default: LLMProvider) -> LLMProvider:

@@ -7,7 +7,7 @@ WORKDIR /app
 COPY pyproject.toml README.md LICENSE ./
 COPY src ./src
 # Editable for the same reason as web.Dockerfile (config.py's ROOT).
-RUN pip install -e ".[voice,webapi,postgres]"
+RUN pip install -e ".[voice,webapi,postgres,openai,gemini]"
 COPY config ./config
 COPY data/knowledge ./data/knowledge
 RUN useradd --create-home app && chown -R app /app

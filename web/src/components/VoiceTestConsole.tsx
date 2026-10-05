@@ -7,7 +7,7 @@ import {
   type RemoteTrack,
   type TranscriptionSegment,
 } from 'livekit-client'
-import type { CallEvent } from '../types'
+import type { CallEvent, Project } from '../types'
 import { api, ApiError } from '../api'
 import { EXAMPLES } from '../examples'
 import { CallTimeline } from './CallTimeline'
@@ -38,7 +38,14 @@ const formatTimer = (seconds: number) =>
  * from those, so each answer comes with the router level that picked the
  * agent, the agents the gate closed, the keyword, handovers and tools.
  * Before the first call the timeline shows an example call, labeled as one. */
-export function VoiceTestConsole() {
+interface Props {
+  pid: string
+  projects: Project[]
+  onPickProject: (pid: string) => void
+}
+
+export function VoiceTestConsole({ pid, projects, onPickProject }: Props) {
+  const isDemo = pid === 'demo'
   const [configured, setConfigured] = useState<boolean | null>(null)
   const [status, setStatus] = useState<Status>('idle')
   const [error, setError] = useState<string | null>(null)
@@ -82,7 +89,7 @@ export function VoiceTestConsole() {
     setEndedByYou(false)
     setElapsed(0)
     try {
-      const { token, url } = await api.getVoiceToken()
+      const { token, url } = await api.getVoiceToken(pid)
       const room = new Room()
       roomRef.current = room
 
@@ -142,8 +149,10 @@ export function VoiceTestConsole() {
     roomRef.current?.disconnect()
   }
 
-  const showing = events ?? EXAMPLE
-  const isExample = events === null
+  // The example call was recorded on the demo family; another agent starts
+  // from an empty timeline.
+  const showing = events ?? (isDemo ? EXAMPLE : [])
+  const isExample = events === null && isDemo
   const lastAgent = [...showing].reverse().find((e) => e.type !== 'ended') as Exclude<CallEvent, { type: 'ended' }> | undefined
 
   const statusLabel =
@@ -160,6 +169,17 @@ export function VoiceTestConsole() {
   return (
     <div className="call">
       <aside className="call-panel">
+        <label className="call-panel__who">
+          <span>Calling</span>
+          <select value={pid} disabled={status === 'live' || status === 'connecting'} onChange={(e) => onPickProject(e.target.value)}>
+            {projects.length === 0 && <option value={pid}>{pid}</option>}
+            {projects.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+        </label>
         <div className={`call-status call-status--${status} call-status--${agentState ?? 'none'}`}>
           <span className="call-status__dot" aria-hidden />
           <span className="call-status__label" role="status">
@@ -191,12 +211,13 @@ export function VoiceTestConsole() {
 
         {configured === false && (
           <p className="call-panel__off">
-            This server has no LiveKit credentials, so live calls are off. The example call shows what a
-            call looks like.
+            This server has no LiveKit credentials, so live calls are off.
+            {isDemo && ' The example call shows what a call looks like.'}
           </p>
         )}
         {error && <p className="error">{error}</p>}
 
+        {isDemo ? (
         <div className="call-panel__tips">
           <h2>Try saying</h2>
           <ul>
@@ -215,6 +236,12 @@ export function VoiceTestConsole() {
             Uses your microphone. The agents speak Italian. Calls are recorded in Calls, marked as voice.
           </p>
         </div>
+        ) : (
+          <p className="call-panel__fine call-panel__tips">
+            Uses your microphone. Say goodbye to let an agent with the end-call tool hang up. Calls are recorded in
+            Calls, marked as voice.
+          </p>
+        )}
       </aside>
 
       <section className="call-main" aria-label={isExample ? 'Example call' : 'This call'}>
@@ -227,6 +254,8 @@ export function VoiceTestConsole() {
                 yours replaces it, turn by turn.
               </p>
             </>
+          ) : events === null ? (
+            <p>Start a call and each turn shows up here, with the router level that picked the agent and why.</p>
           ) : (
             <>
               <span className="call-badge call-badge--live">{status === 'live' ? 'Live' : 'Your call'}</span>
@@ -237,7 +266,11 @@ export function VoiceTestConsole() {
         <div className={isExample ? 'call-main__body' : 'call-main__body call-main__body--live'} ref={timelineRef}>
           {!isExample && showing.length === 0 && !pending ? (
             <p className="call-main__empty">
-              {status === 'connecting' ? 'Connecting to the room…' : 'Waiting for the receptionist to pick up…'}
+              {events === null
+                ? 'Nothing yet.'
+                : status === 'connecting'
+                  ? 'Connecting to the room…'
+                  : 'Waiting for the agent to pick up…'}
             </p>
           ) : (
             <CallTimeline

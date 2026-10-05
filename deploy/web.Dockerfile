@@ -18,7 +18,7 @@ COPY pyproject.toml README.md LICENSE ./
 COPY src ./src
 # Editable on purpose: config.py resolves config/ and data/ relative to the
 # source tree (ROOT = src/..), which a regular site-packages install breaks.
-RUN pip install -e ".[webapi,postgres]"
+RUN pip install -e ".[webapi,postgres,openai,gemini]"
 # Seed data: the demo family and its knowledge, copied into the database on
 # first start (shared mode); the YAML stays the fallback.
 COPY config ./config

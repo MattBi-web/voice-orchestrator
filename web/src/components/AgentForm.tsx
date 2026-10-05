@@ -1,12 +1,11 @@
-import { useState, type ReactNode } from 'react'
-import type { Agent, ToolBinding } from '../types'
+import { useEffect, useState, type ReactNode } from 'react'
+import type { Agent, Catalog, ModelSettings, ToolBinding } from '../types'
 import { api, ApiError } from '../api'
 import { EligibilityBuilder } from './EligibilityBuilder'
 import { ListEditor } from './ListEditor'
 import { KnowledgePicker } from './KnowledgePicker'
-import { LlmOverridePicker } from './LlmOverridePicker'
 import { ToolsEditor } from './ToolsEditor'
-import { VoicePicker } from './VoicePicker'
+import { ModelsEditor } from './ModelsEditor'
 import { useOwner } from '../auth'
 import { describeRule } from './LevelChip'
 
@@ -26,6 +25,11 @@ interface FormState {
   voice_id: string
   voice_stability: number | null
   voice_speed: number | null
+  tts_provider: string
+  tts_model: string
+  stt_provider: string
+  stt_model: string
+  stt_language: string
 }
 
 function blank(id = ''): FormState {
@@ -45,6 +49,11 @@ function blank(id = ''): FormState {
     voice_id: '',
     voice_stability: null,
     voice_speed: null,
+    tts_provider: '',
+    tts_model: '',
+    stt_provider: '',
+    stt_model: '',
+    stt_language: '',
   }
 }
 
@@ -65,15 +74,20 @@ function fromAgent(a: Agent): FormState {
     voice_id: a.voice_id,
     voice_stability: a.voice_stability,
     voice_speed: a.voice_speed,
+    tts_provider: a.tts_provider ?? '',
+    tts_model: a.tts_model ?? '',
+    stt_provider: a.stt_provider ?? '',
+    stt_model: a.stt_model ?? '',
+    stt_language: a.stt_language ?? '',
   }
 }
 
-type Tab = 'behavior' | 'routing' | 'voice' | 'tools' | 'knowledge'
+type Tab = 'behavior' | 'routing' | 'models' | 'tools' | 'knowledge'
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'behavior', label: 'Behavior' },
   { id: 'routing', label: 'Routing' },
-  { id: 'voice', label: 'Voice & model' },
+  { id: 'models', label: 'Models' },
   { id: 'tools', label: 'Tools' },
   { id: 'knowledge', label: 'Knowledge' },
 ]
@@ -88,7 +102,6 @@ function Summary({ agent }: { agent: Agent }): ReactNode {
     agent.triggers.length ? plural(agent.triggers.length, 'keyword') : 'No keywords',
     agent.tools.length ? plural(agent.tools.length, 'tool') : 'No tools',
     agent.knowledge.length ? plural(agent.knowledge.length, 'document') : 'No documents',
-    agent.voice_id ? 'Own voice' : 'Family voice',
   ]
   if (agent.children.length) items.push(plural(agent.children.length, 'specialist') + ' below')
   return (
@@ -102,7 +115,17 @@ function Summary({ agent }: { agent: Agent }): ReactNode {
   )
 }
 
+export type AgentTab = Tab
+export type AgentDraft = FormState
+
 interface Props {
+  pid: string
+  tab?: Tab
+  onTab?: (tab: Tab) => void
+  /** Called with the form's current values, saved or not. */
+  onDraft?: (draft: FormState) => void
+  settings: ModelSettings
+  catalog: Catalog | null
   mode: 'create' | 'edit'
   /** root -> ... -> this agent (edit) or -> the parent (create). */
   path?: Agent[]
@@ -117,6 +140,12 @@ interface Props {
 }
 
 export function AgentForm({
+  pid,
+  tab: controlledTab,
+  onTab,
+  onDraft,
+  settings,
+  catalog,
   mode,
   path = [],
   onSelectAgent,
@@ -131,7 +160,14 @@ export function AgentForm({
   const owner = useOwner()
   const start = () => (initial ? fromAgent(initial) : blank())
   const [state, setState] = useState<FormState>(start)
-  const [tab, setTab] = useState<Tab>('behavior')
+  const [ownTab, setOwnTab] = useState<Tab>('behavior')
+  // The project page can drive the tab (its pipeline opens the right one).
+  const tab = controlledTab ?? ownTab
+  const setTab = (t: Tab) => (onTab ? onTab(t) : setOwnTab(t))
+  useEffect(() => {
+    onDraft?.(state)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state])
   const dirty = JSON.stringify(state) !== JSON.stringify(start())
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
@@ -145,8 +181,16 @@ export function AgentForm({
     setSaving(true)
     try {
       const voiceId = state.voice_id.trim()
+      const models = {
+        tts_provider: state.tts_provider,
+        tts_model: state.tts_model,
+        stt_provider: state.stt_provider,
+        stt_model: state.stt_model,
+        stt_language: state.stt_language,
+      }
       if (mode === 'create') {
-        await api.createAgent({
+        await api.createAgent(pid, {
+          ...models,
           id: state.id.trim(),
           parent_id: parentId ?? null,
           name: state.name,
@@ -159,13 +203,14 @@ export function AgentForm({
           first_message: state.first_message,
           llm_provider: state.llm_provider,
           llm_model: state.llm_model,
-          llm_temperature: state.llm_provider ? state.llm_temperature : null,
+          llm_temperature: state.llm_temperature,
           voice_id: voiceId,
-          voice_stability: voiceId ? state.voice_stability : null,
-          voice_speed: voiceId ? state.voice_speed : null,
+          voice_stability: state.voice_stability,
+          voice_speed: state.voice_speed,
         })
       } else if (initial) {
-        await api.updateAgent(initial.id, {
+        await api.updateAgent(pid, initial.id, {
+          ...models,
           name: state.name,
           description: state.description,
           system_prompt: state.system_prompt,
@@ -176,10 +221,10 @@ export function AgentForm({
           first_message: state.first_message,
           llm_provider: state.llm_provider,
           llm_model: state.llm_model,
-          llm_temperature: state.llm_provider ? state.llm_temperature : null,
+          llm_temperature: state.llm_temperature,
           voice_id: voiceId,
-          voice_stability: voiceId ? state.voice_stability : null,
-          voice_speed: voiceId ? state.voice_speed : null,
+          voice_stability: state.voice_stability,
+          voice_speed: state.voice_speed,
         })
       }
       onSaved()
@@ -196,7 +241,7 @@ export function AgentForm({
     setError(null)
     setDeleting(true)
     try {
-      await api.deleteAgent(initial.id)
+      await api.deleteAgent(pid, initial.id)
       onDeleted()
     } catch (err) {
       setError(err instanceof ApiError ? err.message : String(err))
@@ -230,6 +275,8 @@ export function AgentForm({
         {mode === 'edit' && initial && initial.description && <p className="agent-head__desc">{initial.description}</p>}
         {mode === 'edit' && initial && <Summary agent={initial} />}
       </header>
+
+
 
       <div className="agent-tabs" role="tablist" aria-label="Agent settings">
         {TABS.map((t) => (
@@ -298,15 +345,12 @@ export function AgentForm({
           />
         </div>
 
-        <div role="tabpanel" hidden={tab !== 'voice'}>
-          <VoicePicker
-            value={{ voice_id: state.voice_id, voice_stability: state.voice_stability, voice_speed: state.voice_speed }}
-            onChange={(v) => update(v)}
-          />
-          <LlmOverridePicker
-            value={{ llm_provider: state.llm_provider, llm_model: state.llm_model, llm_temperature: state.llm_temperature }}
-            onChange={(v) => update(v)}
-          />
+        <div role="tabpanel" hidden={tab !== 'models'}>
+          <p className="agent-panels__lede">
+            Each piece uses the project’s model unless you override it here. The voice and the speech-to-text switch when
+            the call reaches this agent.
+          </p>
+          <ModelsEditor mode="agent" value={state} project={settings} catalog={catalog} onChange={(patch) => update(patch as Partial<FormState>)} />
         </div>
 
         <div role="tabpanel" hidden={tab !== 'tools'}>

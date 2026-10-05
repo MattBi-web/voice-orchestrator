@@ -44,6 +44,43 @@ FRAME = SR // 100  # 10 ms
 BILLING_VOICE = "VR6AewLTigWG4xSOukaG"  # Arnold (male); the default voice is female
 CALLER_VOICE = "pNInz6obpgDQGcFmaJgB"  # Adam
 
+# Blocco 8 variant (`--blocco8`): the same family under a project block, with
+# a billing specialist that overrides its TTS model and voice (ElevenLabs
+# Turbo, male) and its speech-to-text (Deepgram nova-2, Italian): the
+# handover has to switch both mid-call, and the goodbye is heard by the
+# specialist's own STT (the worker logs each switch: "pipeline: ..."). Uses
+# only the providers the plain D12 run needs.
+FAMILY_YAML_B8 = f"""project:
+  name: "Centralino B8"
+  settings:
+    stt_provider: deepgram
+    stt_model: nova-3
+    stt_language: multi
+    tts_provider: elevenlabs
+    tts_model: eleven_flash_v2_5
+root:
+  id: router
+  name: "Centralino"
+  description: "Smista le chiamate."
+  system_prompt: "Sei il centralino. Rispondi in italiano, in una frase."
+  first_message: "Centralino, buongiorno. Come posso aiutarla?"
+  children:
+    - id: billing
+      name: "Fatturazione"
+      description: "Bollette e pagamenti."
+      system_prompt: "Sei l'ufficio fatturazione. Rispondi in italiano, in una sola frase breve."
+      triggers: ["bollett"]
+      tools: ["end_call"]
+      tts_model: eleven_turbo_v2_5
+      voice_id: "{BILLING_VOICE}"
+      stt_model: nova-2
+      stt_language: it
+    - id: sales
+      name: "Vendite"
+      description: "Offerte."
+      triggers: ["offert"]
+"""
+
 FAMILY_YAML = f"""root:
   id: router
   name: "Centralino"
@@ -241,14 +278,24 @@ async def main(out_dir: Path) -> int:
         and turns[0]["handed_off"] is True,
         "evento turno arrivederci: end_call": len(turns) > 1 and "end_call" in turns[1]["tools"],
     }
+    if B8:
+        checks["blocco 8: arrivederci capito dallo STT dello specialista (nova-2, it)"] = (
+            len(turns) > 1 and "arrivederci" in turns[1]["caller"].lower()
+        )
+        print("testi capiti:", [t["caller"] for t in turns])
+        print("risposte:", [t["reply"] for t in turns])
     for name, ok in checks.items():
         print(f"[{'OK' if ok else 'FALLITO'}] {name}")
     return 0 if all(checks.values()) else 1
 
 
+B8 = "--blocco8" in sys.argv
+
 if __name__ == "__main__":
+    if B8:
+        sys.argv.remove("--blocco8")
     if "--write-family" in sys.argv:
-        Path(sys.argv[2]).write_text(FAMILY_YAML, encoding="utf-8")
+        Path(sys.argv[2]).write_text(FAMILY_YAML_B8 if B8 else FAMILY_YAML, encoding="utf-8")
         print("scritto", sys.argv[2])
         sys.exit(0)
     sys.exit(asyncio.run(main(Path(sys.argv[2]) if len(sys.argv) > 2 else Path("d12_room_out"))))

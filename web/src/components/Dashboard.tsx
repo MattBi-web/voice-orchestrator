@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
-import type { CallRecord, CallStats, Agent } from '../types'
+import type { CallRecord, CallStats } from '../types'
+import { useProjects, useTrees } from '../trees'
 import { findAgent } from '../tree'
 import { api, ApiError } from '../api'
 import { VerdictChip } from './VerdictChip'
@@ -63,7 +64,9 @@ function MiniBarChart({
   )
 }
 
-export function Dashboard({ root, onOpenCall }: { root: Agent | null; onOpenCall: (callId: string) => void }) {
+export function Dashboard({ onOpenCall }: { onOpenCall: (callId: string) => void }) {
+  const projects = useProjects()
+  const [project, setProject] = useState('')
   const palette = useChartPalette()
   const [stats, setStats] = useState<CallStats | null>(null)
   const [calls, setCalls] = useState<CallRecord[]>([])
@@ -73,7 +76,7 @@ export function Dashboard({ root, onOpenCall }: { root: Agent | null; onOpenCall
 
   const load = () => {
     setError(null)
-    Promise.all([api.getCallStats(includeTest), api.getCalls(20)])
+    Promise.all([api.getCallStats(includeTest, 14, project), api.getCalls(20, project)])
       .then(([s, c]) => {
         setStats(s)
         setCalls(c.calls)
@@ -85,7 +88,10 @@ export function Dashboard({ root, onOpenCall }: { root: Agent | null; onOpenCall
   useEffect(() => {
     load()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [includeTest])
+  }, [includeTest, project])
+
+  const treesByProject = useTrees(calls.map((c) => c.project_id))
+  const projectName = (pid: string) => projects.find((p) => p.id === pid)?.name ?? pid
 
   const routingData = stats
     ? Object.entries(stats.resolved_by_totals).map(([level, count]) => ({
@@ -101,6 +107,16 @@ export function Dashboard({ root, onOpenCall }: { root: Agent | null; onOpenCall
     <div className="dashboard">
       <div className="dashboard__toolbar">
         <div className="dashboard__toolbar-actions">
+          {projects.length > 1 && (
+            <select value={project} onChange={(e) => setProject(e.target.value)} aria-label="Agent">
+              <option value="">All agents</option>
+              {projects.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          )}
           <label className="dashboard__toggle">
             <input type="checkbox" checked={includeTest} onChange={(e) => setIncludeTest(e.target.checked)} />
             Include text tests
@@ -161,6 +177,7 @@ export function Dashboard({ root, onOpenCall }: { root: Agent | null; onOpenCall
                 <tr>
                   <th>When</th>
                   <th>Type</th>
+                  <th>Agent</th>
                   <th>Ended with</th>
                   <th>Length</th>
                   <th>Handovers</th>
@@ -174,7 +191,12 @@ export function Dashboard({ root, onOpenCall }: { root: Agent | null; onOpenCall
                     <td>
                       <span className={`dashboard__badge dashboard__badge--${c.source}`}>{SOURCE_LABELS[c.source] ?? c.source}</span>
                     </td>
-                    <td>{c.final_agent_id ? findAgent(root, c.final_agent_id)?.name || c.final_agent_id : '—'}</td>
+                    <td>{projectName(c.project_id)}</td>
+                    <td>
+                      {c.final_agent_id
+                        ? findAgent(treesByProject[c.project_id] ?? null, c.final_agent_id)?.name || c.final_agent_id
+                        : '—'}
+                    </td>
                     <td>{c.duration_seconds.toFixed(1)}s</td>
                     <td>{c.handoffs}</td>
                     <td>
@@ -184,7 +206,7 @@ export function Dashboard({ root, onOpenCall }: { root: Agent | null; onOpenCall
                 ))}
                 {calls.length === 0 && (
                   <tr>
-                    <td colSpan={6} className="dashboard__empty">
+                    <td colSpan={7} className="dashboard__empty">
                       No calls to show.
                     </td>
                   </tr>

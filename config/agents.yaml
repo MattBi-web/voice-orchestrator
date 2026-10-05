@@ -11,6 +11,17 @@
 #   llm_provider/llm_model/llm_temperature — per-agent LLM override, "" = inherit the call's default
 #   voice_id/voice_stability/voice_speed   — per-agent ElevenLabs voice override, "" = inherit worker.py's default
 #   children        — nested sub-agents (recursion all the way down)
+# Blocco 8: the project block — name, description and the default models
+# for every agent (each agent can override any of them, see project.py).
+project:
+  name: "Meridian Telecom"
+  description: "The customer line of a fictional Italian telecom: a receptionist and six specialists, with a gate, keywords, tools, knowledge and an MCP server."
+  settings:
+    stt_provider: deepgram
+    stt_model: nova-3
+    stt_language: multi
+    tts_provider: elevenlabs
+    tts_model: eleven_flash_v2_5
 root:
   id: router
   name: "Receptionist"

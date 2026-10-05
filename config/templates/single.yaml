@@ -1,0 +1,14 @@
+# Template: one agent that answers the whole call (blocco 8).
+# The builder makes a copy; editing the copy never changes this file.
+template:
+  name: "Single agent"
+  description: "One agent answers the whole call. Start here for an assistant, a booking line or a FAQ bot."
+root:
+  id: assistant
+  name: "Assistant"
+  description: "Answers the caller directly."
+  system_prompt: >
+    You are a friendly phone assistant. Answer briefly and clearly, one or
+    two sentences at a time, and ask a question when you need more detail.
+  first_message: "Buongiorno, come posso aiutarla?"
+  tools: ["end_call"]

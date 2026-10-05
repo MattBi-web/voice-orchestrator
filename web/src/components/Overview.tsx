@@ -4,12 +4,17 @@ import { api, ApiError } from '../api'
 import { flatten } from '../tree'
 import { describeRule, LEVELS } from './LevelChip'
 import { EXAMPLES } from '../examples'
+import { useTrees } from '../trees'
 
 type Go = (view: 'call' | 'agents' | 'knowledge' | 'tools' | 'calls' | 'analytics') => void
 
 
 const SECTIONS: { view: Parameters<Go>[0]; title: string; what: string }[] = [
-  { view: 'agents', title: 'Agents', what: 'The family as a list or a graph: prompts, voices, keywords, tools and who can reach whom.' },
+  {
+    view: 'agents',
+    title: 'Agents',
+    what: 'Create a single agent or a workflow, pick the speech, language and voice models, and see how each agent is built.',
+  },
   { view: 'knowledge', title: 'Knowledge', what: 'Documents agents answer from, and a way to see which passages a question retrieves.' },
   { view: 'tools', title: 'Tools', what: 'Hand over to a human, end the call, call a webhook or an MCP server.' },
   { view: 'calls', title: 'Calls', what: 'Every call turn by turn, with the router level behind each decision and an evaluation.' },
@@ -239,7 +244,9 @@ function NoModelShare({ stats }: { stats: CallStats | null }) {
   )
 }
 
-export function Overview({ root, go }: { root: Agent | null; go: Go }) {
+export function Overview({ go }: { root?: Agent | null; go: Go }) {
+  // The landing page runs on the demo project.
+  const root = useTrees(['demo']).demo ?? null
   const [stats, setStats] = useState<CallStats | null>(null)
   const count = useMemo(() => flatten(root).length, [root])
 

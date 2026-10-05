@@ -658,13 +658,14 @@ def test_test_route_defaults_to_fake_provider(client):
 
 def test_test_route_can_use_the_configured_provider(client, monkeypatch):
     from voice_orchestrator import llm
-    from voice_orchestrator.webapi import app as app_module
+    from voice_orchestrator import project as project_module
 
     class Configured(llm.FakeProvider):
         def respond(self, *args, **kwargs):
             return "risposta dal provider configurato"
 
-    monkeypatch.setattr(app_module, "get_provider", lambda *a, **k: Configured())
+    # Blocco 8: the project's models resolve through project.cached_provider.
+    monkeypatch.setattr(project_module, "cached_provider", lambda *a, **k: Configured())
     body = client.post(
         "/api/test/route", json={"utterance": "il wifi non si connette", "use_configured_provider": True}
     ).json()
@@ -674,7 +675,7 @@ def test_test_route_can_use_the_configured_provider(client, monkeypatch):
 
 def test_test_route_provider_error_is_a_502(client, monkeypatch):
     from voice_orchestrator import llm
-    from voice_orchestrator.webapi import app as app_module
+    from voice_orchestrator import project as project_module
 
     class Broken(llm.LLMProvider):
         def classify(self, *a, **k):
@@ -686,7 +687,7 @@ def test_test_route_provider_error_is_a_502(client, monkeypatch):
         def summarize(self, *a, **k):
             return ""
 
-    monkeypatch.setattr(app_module, "get_provider", lambda *a, **k: Broken())
+    monkeypatch.setattr(project_module, "cached_provider", lambda *a, **k: Broken())
     r = client.post("/api/test/route", json={"utterance": "zzz", "use_configured_provider": True})
     assert r.status_code == 502
     assert "invalid x-api-key" in r.json()["detail"]

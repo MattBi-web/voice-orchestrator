@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import json
 
-from sqlalchemy import ForeignKey, Text
+from sqlalchemy import Text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -28,14 +28,42 @@ class Base(DeclarativeBase):
     pass
 
 
+class ProjectRow(Base):
+    """Blocco 8: one phone line — a single agent or a workflow — with its
+    default models (project.ModelSettings, stored whole as JSON: it is only
+    ever read and written as one form)."""
+
+    __tablename__ = "projects"
+
+    id: Mapped[str] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(default="")
+    description: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[str] = mapped_column(default="")
+    updated_at: Mapped[str] = mapped_column(default="")
+    position: Mapped[int] = mapped_column(default=0)
+    settings_json: Mapped[str] = mapped_column(Text, default="{}")
+
+    @property
+    def settings(self) -> dict:
+        return json.loads(self.settings_json or "{}")
+
+    @settings.setter
+    def settings(self, value: dict) -> None:
+        self.settings_json = json.dumps(dict(value))
+
+
 class AgentRow(Base):
     __tablename__ = "agents"
 
+    # Blocco 8: agent ids are unique within a project, not globally — two
+    # projects made from the same template both have a "router".
+    project_id: Mapped[str] = mapped_column(primary_key=True, default="demo")
     id: Mapped[str] = mapped_column(primary_key=True)
     # NULL only for the root (receptionist/router) agent — mirrors
     # agents/registry.py's AgentSpec tree, where the root is the one node
-    # with no parent and everyone else hangs off it via `children`.
-    parent_id: Mapped[str | None] = mapped_column(ForeignKey("agents.id"), nullable=True)
+    # with no parent and everyone else hangs off it via `children`. Same
+    # project as the row itself; checked by repository.py, not by a FK.
+    parent_id: Mapped[str | None] = mapped_column(nullable=True)
     name: Mapped[str] = mapped_column(default="")
     description: Mapped[str] = mapped_column(default="")
     system_prompt: Mapped[str] = mapped_column(default="")
@@ -56,6 +84,12 @@ class AgentRow(Base):
     voice_id: Mapped[str] = mapped_column(default="")
     voice_stability: Mapped[float | None] = mapped_column(nullable=True, default=None)
     voice_speed: Mapped[float | None] = mapped_column(nullable=True, default=None)
+    # Blocco 8: the rest of the pipeline, "" = inherit the project's.
+    tts_provider: Mapped[str] = mapped_column(default="")
+    tts_model: Mapped[str] = mapped_column(default="")
+    stt_provider: Mapped[str] = mapped_column(default="")
+    stt_model: Mapped[str] = mapped_column(default="")
+    stt_language: Mapped[str] = mapped_column(default="")
     # Blocco 4 — where the graph view put this node after a drag. None for
     # both = let the frontend auto-layout it (a fresh/never-dragged agent).
     layout_x: Mapped[float | None] = mapped_column(nullable=True, default=None)
@@ -247,6 +281,7 @@ class CallRow(Base):
 
     call_id: Mapped[str] = mapped_column(primary_key=True)
     source: Mapped[str] = mapped_column(default="", index=True)
+    project_id: Mapped[str] = mapped_column(default="demo", index=True)
     started_at: Mapped[str] = mapped_column(default="", index=True)
     record_json: Mapped[str] = mapped_column(Text, default="{}")
 

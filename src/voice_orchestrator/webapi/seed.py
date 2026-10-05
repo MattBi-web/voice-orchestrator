@@ -16,12 +16,13 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .. import config
-from ..agents.registry import AgentSpec, load_family
+from ..agents.registry import load_family_file
+from ..project import DEFAULT_PROJECT, ModelSettings
 from ..analysis import DEFAULT_CRITERIA, DEFAULT_DATA_ITEMS
 from ..tools.mcp_tool import read_raw_server_entries
 from ..tools.webhook_tool import read_raw_entries as read_raw_webhook_entries
-from . import analysis_repository
-from .models import AgentRow, AppMetaRow, DataCollectionItemRow, EvaluationCriterionRow, McpServerRow, WebhookToolRow
+from . import analysis_repository, repository
+from .models import AgentRow, AppMetaRow, ProjectRow, DataCollectionItemRow, EvaluationCriterionRow, McpServerRow, WebhookToolRow
 
 
 def _already_seeded(session: Session, key: str) -> bool:
@@ -33,50 +34,49 @@ def _mark_seeded(session: Session, key: str) -> None:
         session.add(AppMetaRow(key=key, value="1"))
 
 
-def _insert_subtree(session: Session, node: AgentSpec, parent_id: str | None, position: int) -> None:
-    row = AgentRow(
-        id=node.id,
-        parent_id=parent_id,
-        name=node.name,
-        description=node.description,
-        system_prompt=node.system_prompt,
-        eligibility=node.eligibility,
-        first_message=node.first_message,
-        llm_provider=node.llm_provider,
-        llm_model=node.llm_model,
-        llm_temperature=node.llm_temperature,
-        voice_id=node.voice_id,
-        voice_stability=node.voice_stability,
-        voice_speed=node.voice_speed,
-        position=position,
+def _create_demo(session: Session, yaml_path: Path | None) -> None:
+    from . import project_repository
+
+    path = yaml_path or config.AGENTS_FILE
+    root, meta = load_family_file(path)
+    row = ProjectRow(
+        id=DEFAULT_PROJECT,
+        name=meta.get("name", "Demo"),
+        description=meta.get("description", ""),
+        created_at=project_repository._now(),
+        updated_at=project_repository._now(),
+        position=0,
     )
-    row.triggers = node.triggers
-    row.tools = [{"id": t.id, "condition": t.condition} for t in node.tools]
-    row.knowledge = node.knowledge
+    row.settings = ModelSettings.from_dict(meta.get("settings")).as_dict()
     session.add(row)
-    for i, child in enumerate(node.children):
-        _insert_subtree(session, child, parent_id=node.id, position=i)
+    repository.insert_subtree(session, DEFAULT_PROJECT, root)
 
 
 def seed_if_empty(session: Session, yaml_path: Path | None = None) -> bool:
-    """Returns True if it actually seeded anything (the DB was empty),
-    False if it found existing rows and left them untouched."""
-    already_has_rows = session.scalar(select(AgentRow.id).limit(1)) is not None
-    if already_has_rows:
+    """Returns True if it actually seeded anything, False if projects
+    already existed. Blocco 8: the YAML family becomes the "demo" project;
+    a database migrated from before projects only gets that project's row
+    (its agents are already there)."""
+    from . import project_repository
+
+    if session.scalar(select(ProjectRow.id).limit(1)) is not None:
         return False
-    root = load_family(yaml_path or config.AGENTS_FILE)
-    _insert_subtree(session, root, parent_id=None, position=0)
+    if project_repository.ensure_demo(session):
+        session.commit()
+        return True
+    _create_demo(session, yaml_path)
     session.commit()
     return True
 
 
 def reseed(session: Session, yaml_path: Path | None = None) -> None:
-    """Wipes every row and re-imports from YAML — destructive, only for
-    development resets. Never called by app.py's startup path."""
+    """Wipes every project and agent and re-imports the demo from YAML —
+    destructive, only for development resets. Never called by app.py's
+    startup path."""
     session.query(AgentRow).delete()
+    session.query(ProjectRow).delete()
     session.commit()
-    root = load_family(yaml_path or config.AGENTS_FILE)
-    _insert_subtree(session, root, parent_id=None, position=0)
+    _create_demo(session, yaml_path)
     session.commit()
 
 

@@ -22,12 +22,14 @@ import threading
 import time
 import uuid
 from dataclasses import dataclass, field
+from typing import Any
 from datetime import datetime, timezone
 
 from .. import call_events, call_log
 from ..agents.registry import AgentSpec
 from ..llm import FakeProvider, LLMProvider
 from ..orchestrator import handle_turn
+from ..project import DEFAULT_PROJECT
 from ..state import CallSession
 
 IDLE_TTL = 30 * 60
@@ -48,6 +50,9 @@ class Conversation:
     session: CallSession
     provider: LLMProvider
     started_at: datetime
+    responder: Any = None
+    project_id: str = DEFAULT_PROJECT
+    simulated: bool = True
     touched: float = field(default_factory=time.monotonic)
     seq: int = 0
 
@@ -58,7 +63,9 @@ _lock = threading.Lock()
 
 def _log(conv: Conversation) -> None:
     if conv.session.full_log:
-        call_log.append(call_log.from_session(conv.session, source="route_test", started_at=conv.started_at))
+        call_log.append(
+            call_log.from_session(conv.session, source="route_test", started_at=conv.started_at, project_id=conv.project_id)
+        )
 
 
 def _sweep(now: float) -> None:
@@ -66,7 +73,15 @@ def _sweep(now: float) -> None:
         _log(_live.pop(cid))
 
 
-def start(start_path: list[str], channel: str, slots: dict, provider: LLMProvider) -> str:
+def start(
+    start_path: list[str],
+    channel: str,
+    slots: dict,
+    provider: LLMProvider,
+    responder: Any = None,
+    project_id: str = DEFAULT_PROJECT,
+    simulated: bool | None = None,
+) -> str:
     cid = f"webapi-conv-{uuid.uuid4().hex[:8]}"
     session = CallSession(call_id=cid, channel=channel, slots=dict(slots))
     session.agent_path = list(start_path)
@@ -74,7 +89,14 @@ def start(start_path: list[str], channel: str, slots: dict, provider: LLMProvide
         _sweep(time.monotonic())
         if len(_live) >= MAX_LIVE:
             raise ConversationFull("Too many test conversations open right now; try again in a few minutes.")
-        _live[cid] = Conversation(session=session, provider=provider, started_at=datetime.now(timezone.utc))
+        _live[cid] = Conversation(
+            session=session,
+            provider=provider,
+            started_at=datetime.now(timezone.utc),
+            responder=responder,
+            project_id=project_id,
+            simulated=isinstance(provider, FakeProvider) if simulated is None else simulated,
+        )
     return cid
 
 
@@ -96,15 +118,19 @@ def turn(cid: str, root: AgentSpec, utterance: str, slots: dict | None = None) -
     if session.current_agent_id and root.find(session.current_agent_id) is None:
         session.agent_path = [root.id]
     from_id = session.current_agent_id or root.id
-    result = handle_turn(session, root, utterance, conv.provider)
+    result = handle_turn(session, root, utterance, conv.provider, responder=conv.responder)
     conv.seq += 1
-    event = call_events.turn_event(
-        root, from_id, utterance, result, session, conv.seq, simulated=isinstance(conv.provider, FakeProvider)
-    )
+    event = call_events.turn_event(root, from_id, utterance, result, session, conv.seq, simulated=conv.simulated)
     ended = "end_call" in result.tool_ids_used
     if ended:
         end(cid)
     return {**event, "ended": ended}
+
+
+def project_of(cid: str) -> str | None:
+    with _lock:
+        conv = _live.get(cid)
+    return conv.project_id if conv else None
 
 
 def end(cid: str) -> bool:

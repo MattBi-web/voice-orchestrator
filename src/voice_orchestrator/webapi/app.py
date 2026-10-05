@@ -17,24 +17,27 @@ import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 
-from fastapi import Depends, FastAPI, HTTPException, Request, Response
+import yaml
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .. import analysis, call_events, call_log, config, knowledge
+from .. import analysis, call_events, call_log, catalog, config, knowledge
+from .. import project as project_module
+from ..project import DEFAULT_PROJECT
 from ..agents.registry import save_family
 from ..llm import FakeProvider, get_provider, get_provider_for_agent
 from ..orchestrator import handle_turn
 from ..state import CallSession
 from ..tools import REGISTRY
 from ..tools import webhook_log as webhook_log_module
-from . import analysis_repository, auth, knowledge_repository, mcp_repository, mcp_sync, repository, seed, test_conversations, voice_token, webhook_repository, webhook_sync
+from . import analysis_repository, auth, knowledge_repository, mcp_repository, mcp_sync, project_repository, repository, seed, test_conversations, voice_token, webhook_repository, webhook_sync
 from .db import get_session
 from .mcp_repository import McpServerInput
-from .models import AgentRow
+from .models import AgentRow, ProjectRow
 from .repository import AgentInput
 from .schemas import (
     AgentIn,
@@ -50,6 +53,8 @@ from .schemas import (
     KnowledgeUrlIn,
     McpServerIn,
     McpServerOut,
+    ProjectIn,
+    ProjectUpdate,
     TestRouteRequest,
     TestRouteResponse,
     WebhookExecutionOut,
@@ -292,7 +297,7 @@ def search_knowledge(body: KnowledgeSearchIn, session: Session = Depends(get_ses
     more, to see what just missed)."""
     names = list(body.documents)
     if body.agent_id:
-        root = repository.build_tree(session)
+        root = repository.build_tree(session, body.project_id)
         agent = root.find(body.agent_id) if root else None
         if agent is None:
             raise HTTPException(404, f"No agent with id={body.agent_id!r}")
@@ -358,117 +363,164 @@ def voice_status() -> dict:
     return {"configured": voice_token.is_configured()}
 
 
+class VoiceTokenIn(BaseModel):
+    project_id: str = DEFAULT_PROJECT
+
+
 @app.post("/api/voice/token")
-def voice_token_endpoint() -> dict:
+def voice_token_endpoint(body: VoiceTokenIn | None = None, session: Session = Depends(get_session)) -> dict:
     """Issues one short-lived LiveKit room token per call, exactly what the
     hosted Agents Playground's own backend does — see voice_token.py's
     docstring for why a running worker, not this endpoint, is what actually
-    answers the call."""
+    answers the call. Blocco 8: the room name carries the project, so the
+    worker knows which agents and models answer."""
     if not voice_token.is_configured():
         raise HTTPException(
             400,
-            "LIVEKIT_URL/LIVEKIT_API_KEY/LIVEKIT_API_SECRET non sono impostate "
-            "lato backend — vedi la sezione 'Voice layer' del README.",
+            "Voice calls aren't set up on this server: LIVEKIT_URL, LIVEKIT_API_KEY and LIVEKIT_API_SECRET are missing.",
         )
-    return voice_token.mint()
+    project_id = (body or VoiceTokenIn()).project_id
+    _project_or_404(session, project_id)
+    return voice_token.mint(project_id)
 
 
-@app.get("/api/agents")
-def get_agent_tree(session: Session = Depends(get_session)) -> dict:
-    rows = session.scalars(select(AgentRow).order_by(AgentRow.position)).all()
-    return {"root": build_agent_out_tree(rows)}
+# ---- agents, scoped to a project (blocco 8) ----
+# One router, mounted twice: under /api/projects/{project_id} (where
+# project_id is a path parameter) and under /api (the pre-project paths,
+# where the same parameter becomes an optional query parameter defaulting
+# to the demo project). Same handlers, so the two can't drift apart.
+
+agents_router = APIRouter()
 
 
-@app.get("/api/agents/{agent_id}", response_model=AgentOut)
-def get_agent(agent_id: str, session: Session = Depends(get_session)) -> AgentOut:
+def _project_or_404(session: Session, project_id: str) -> None:
+    if session.get(ProjectRow, project_id) is None:
+        raise HTTPException(404, f"No project with id={project_id!r}")
+
+
+def _agent_input(agent_id: str, parent_id: str | None, body: AgentIn | AgentUpdate) -> AgentInput:
+    return AgentInput(
+        id=agent_id,
+        parent_id=parent_id,
+        name=body.name,
+        description=body.description,
+        system_prompt=body.system_prompt,
+        eligibility=body.eligibility,
+        triggers=body.triggers,
+        tools=[t.model_dump() for t in body.tools],
+        knowledge=body.knowledge,
+        first_message=body.first_message,
+        llm_provider=body.llm_provider,
+        llm_model=body.llm_model,
+        llm_temperature=body.llm_temperature,
+        voice_id=body.voice_id,
+        voice_stability=body.voice_stability,
+        voice_speed=body.voice_speed,
+        tts_provider=body.tts_provider,
+        tts_model=body.tts_model,
+        stt_provider=body.stt_provider,
+        stt_model=body.stt_model,
+        stt_language=body.stt_language,
+    )
+
+
+@agents_router.get("/agents")
+def get_agent_tree(project_id: str = DEFAULT_PROJECT, session: Session = Depends(get_session)) -> dict:
+    _project_or_404(session, project_id)
+    return {"root": build_agent_out_tree(repository.project_rows(session, project_id))}
+
+
+@agents_router.get("/agents/{agent_id}", response_model=AgentOut)
+def get_agent(agent_id: str, project_id: str = DEFAULT_PROJECT, session: Session = Depends(get_session)) -> AgentOut:
     try:
-        row = repository.get_row(session, agent_id)
+        row = repository.get_row(session, agent_id, project_id)
     except repository.AgentNotFound:
         raise HTTPException(404, f"No agent with id={agent_id!r}")
-    child_rows = session.scalars(select(AgentRow).where(AgentRow.parent_id == agent_id)).all()
+    child_rows = session.scalars(
+        select(AgentRow).where(AgentRow.project_id == project_id, AgentRow.parent_id == agent_id)
+    ).all()
     out = row_to_out(row)
     out.children_ids = [r.id for r in child_rows]
     return out
 
 
-@app.post("/api/agents", response_model=AgentOut, status_code=201)
-def create_agent(body: AgentIn, session: Session = Depends(get_session)) -> AgentOut:
-    data = AgentInput(
-        id=body.id,
-        parent_id=body.parent_id,
-        name=body.name,
-        description=body.description,
-        system_prompt=body.system_prompt,
-        eligibility=body.eligibility,
-        triggers=body.triggers,
-        tools=[t.model_dump() for t in body.tools],
-        knowledge=body.knowledge,
-        first_message=body.first_message,
-        llm_provider=body.llm_provider,
-        llm_model=body.llm_model,
-        llm_temperature=body.llm_temperature,
-        voice_id=body.voice_id,
-        voice_stability=body.voice_stability,
-        voice_speed=body.voice_speed,
-    )
+@agents_router.get("/agents/{agent_id}/pipeline")
+def get_agent_pipeline(agent_id: str, project_id: str = DEFAULT_PROJECT, session: Session = Depends(get_session)) -> dict:
+    """Blocco 8: the pieces this agent is built from, in call order (STT,
+    router, LLM, TTS), each with the model it will actually use and whether
+    that comes from the agent or from the project — resolved by the same
+    project.py functions the voice worker and the text tests use."""
+    root = repository.build_tree(session, project_id)
+    agent = root.find(agent_id) if root else None
+    if agent is None:
+        raise HTTPException(404, f"No agent with id={agent_id!r}")
+    settings = project_repository.settings_of(session, project_id)
+    available = {(p["component"], p["id"]): p["available"] for comp in catalog.as_dict().values() for p in comp}
+    steps = []
+    for piece in project_module.pipeline(agent, settings):
+        comp = "llm" if piece["component"] == "router" else piece["component"]
+        piece["available"] = available.get((comp, piece["provider"]), piece["provider"] in ("", "fake"))
+        steps.append(piece)
+    return {
+        "agent_id": agent.id,
+        "steps": steps,
+        "routing": {
+            "children": [
+                {"id": c.id, "name": c.name, "eligibility": c.eligibility, "triggers": c.triggers} for c in agent.children
+            ],
+        },
+        "tools": [{"id": t.id, "condition": t.condition} for t in agent.tools],
+        "knowledge": list(agent.knowledge),
+    }
+
+
+@agents_router.post("/agents", response_model=AgentOut, status_code=201)
+def create_agent(body: AgentIn, project_id: str = DEFAULT_PROJECT, session: Session = Depends(get_session)) -> AgentOut:
+    _project_or_404(session, project_id)
     try:
-        row = repository.create_agent(session, data)
+        row = repository.create_agent(session, _agent_input(body.id, body.parent_id, body), project_id)
     except repository.AgentIdTaken:
         raise HTTPException(409, f"Agent id={body.id!r} already exists")
     except repository.ParentNotFound as exc:
         raise HTTPException(400, str(exc))
+    project_repository.touch(session, project_id)
     return row_to_out(row)
 
 
-@app.put("/api/agents/{agent_id}", response_model=AgentOut)
-def update_agent(agent_id: str, body: AgentUpdate, session: Session = Depends(get_session)) -> AgentOut:
-    data = AgentInput(
-        id=agent_id,
-        parent_id=None,  # not used by update_agent; reparenting isn't supported in v1
-        name=body.name,
-        description=body.description,
-        system_prompt=body.system_prompt,
-        eligibility=body.eligibility,
-        triggers=body.triggers,
-        tools=[t.model_dump() for t in body.tools],
-        knowledge=body.knowledge,
-        first_message=body.first_message,
-        llm_provider=body.llm_provider,
-        llm_model=body.llm_model,
-        llm_temperature=body.llm_temperature,
-        voice_id=body.voice_id,
-        voice_stability=body.voice_stability,
-        voice_speed=body.voice_speed,
-    )
+@agents_router.put("/agents/{agent_id}", response_model=AgentOut)
+def update_agent(
+    agent_id: str, body: AgentUpdate, project_id: str = DEFAULT_PROJECT, session: Session = Depends(get_session)
+) -> AgentOut:
     try:
-        row = repository.update_agent(session, agent_id, data)
+        row = repository.update_agent(session, agent_id, _agent_input(agent_id, None, body), project_id)
     except repository.AgentNotFound:
         raise HTTPException(404, f"No agent with id={agent_id!r}")
+    project_repository.touch(session, project_id)
     return row_to_out(row)
 
 
-@app.patch("/api/agents/{agent_id}/layout", response_model=AgentOut)
+@agents_router.patch("/agents/{agent_id}/layout", response_model=AgentOut)
 def update_agent_layout(
-    agent_id: str, body: AgentLayoutUpdate, session: Session = Depends(get_session)
+    agent_id: str, body: AgentLayoutUpdate, project_id: str = DEFAULT_PROJECT, session: Session = Depends(get_session)
 ) -> AgentOut:
     """Blocco 4: the graph view calls this after a drag, instead of a full
     PUT, so repositioning a node is one small, frequent write rather than
     resending the whole agent form."""
     try:
-        row = repository.update_layout(session, agent_id, body.layout_x, body.layout_y)
+        row = repository.update_layout(session, agent_id, body.layout_x, body.layout_y, project_id)
     except repository.AgentNotFound:
         raise HTTPException(404, f"No agent with id={agent_id!r}")
     return row_to_out(row)
 
 
-@app.patch("/api/agents/{agent_id}/parent", response_model=AgentOut)
+@agents_router.patch("/agents/{agent_id}/parent", response_model=AgentOut)
 def reparent_agent(
-    agent_id: str, body: AgentReparentRequest, session: Session = Depends(get_session)
+    agent_id: str, body: AgentReparentRequest, project_id: str = DEFAULT_PROJECT, session: Session = Depends(get_session)
 ) -> AgentOut:
     """D13: moves an agent (and its subtree) under a different parent —
     what the graph view's drag-a-node-onto-another-node does."""
     try:
-        row = repository.reparent_agent(session, agent_id, body.parent_id)
+        row = repository.reparent_agent(session, agent_id, body.parent_id, project_id)
     except repository.AgentNotFound:
         raise HTTPException(404, f"No agent with id={agent_id!r}")
     except repository.CannotReparentRoot:
@@ -477,57 +529,158 @@ def reparent_agent(
         raise HTTPException(400, str(exc))
     except repository.WouldCreateCycle as exc:
         raise HTTPException(409, str(exc))
+    project_repository.touch(session, project_id)
     return row_to_out(row)
 
 
-@app.delete("/api/agents/{agent_id}", status_code=204)
-def delete_agent(agent_id: str, session: Session = Depends(get_session)) -> None:
+@agents_router.delete("/agents/{agent_id}", status_code=204)
+def delete_agent(agent_id: str, project_id: str = DEFAULT_PROJECT, session: Session = Depends(get_session)) -> None:
     try:
-        repository.delete_agent(session, agent_id)
+        repository.delete_agent(session, agent_id, project_id)
     except repository.AgentNotFound:
         raise HTTPException(404, f"No agent with id={agent_id!r}")
     except repository.CannotDeleteRoot:
         raise HTTPException(400, "Cannot delete the root (router) agent")
     except repository.HasChildren:
         raise HTTPException(409, "Delete this agent's children first")
+    project_repository.touch(session, project_id)
 
 
 @app.post("/api/agents/export")
 def export_agents(session: Session = Depends(get_session)) -> dict:
-    """Writes the DB-backed family (whatever the builder currently holds)
-    back to `config/agents.yaml`, using the exact same `save_family()` the
-    CLI's own `agents add`/`agents remove` commands already use — this isn't
-    a new serializer, just a new caller of one that's shipped since the
-    first commit.
-
-    An explicit action, not something that runs on every save: the two
-    sources of truth are deliberately kept separate day to day (see
-    docs/ROADMAP.md's decision log) — this is the escape hatch for "I want
-    what I built in the browser to be what `chat`/the voice worker/tests
-    actually use," not a silent sync. It overwrites a file tracked in git,
-    so the frontend confirms before calling this.
-
-    Nothing needs restarting afterwards: `load_family()` is called fresh by
-    every `chat`/`route` invocation and by the voice worker's
-    `new_voice_bridge()` on every new call — so the very next one already
-    sees this export, even against an already-running worker process."""
-    root = repository.build_tree(session)
+    """Writes the demo project (whatever the builder currently holds) back
+    to `config/agents.yaml`, project block included, with the same
+    `save_family()` the CLI's `agents add`/`agents remove` use. An explicit
+    action, never a silent sync (docs/ROADMAP.md's decision log); the
+    frontend confirms first because the file is tracked in git. Other
+    projects are exported as YAML text by GET /api/projects/{id}/export."""
+    root = repository.build_tree(session, DEFAULT_PROJECT)
     if root is None:
         raise HTTPException(400, "No agents yet — nothing to export")
-    save_family(root, config.AGENTS_FILE)
+    block = project_repository.export(session, DEFAULT_PROJECT).get("project")
+    save_family(root, config.AGENTS_FILE, block)
     agent_count = sum(1 for _ in root.iter_subtree())
     return {"path": str(config.AGENTS_FILE), "agent_count": agent_count}
 
 
+# ---- projects (blocco 8) ----
+
+
+@app.get("/api/catalog")
+def get_catalog() -> dict:
+    """Providers and models per pipeline piece, each marked available or
+    with what it needs (catalog.py)."""
+    return catalog.as_dict()
+
+
+@app.get("/api/templates")
+def list_templates() -> dict:
+    return {
+        "templates": [
+            {"id": t.id, "name": t.name, "description": t.description, "agent_count": t.agent_count}
+            for t in project_repository.templates()
+        ]
+    }
+
+
+@app.get("/api/projects")
+def list_projects(session: Session = Depends(get_session)) -> dict:
+    calls = call_log.read_all()
+    per_project: dict[str, int] = {}
+    for r in calls:
+        per_project[r.project_id] = per_project.get(r.project_id, 0) + 1
+    return {
+        "projects": [
+            {**project_repository.summary(session, row), "call_count": per_project.get(row.id, 0)}
+            for row in project_repository.list_all(session)
+        ]
+    }
+
+
+@app.post("/api/projects", status_code=201)
+def create_project(body: ProjectIn, session: Session = Depends(get_session)) -> dict:
+    if not body.name.strip():
+        raise HTTPException(400, "Give the agent a name")
+    try:
+        row = project_repository.create(session, body.name, body.template, body.description)
+    except project_repository.UnknownTemplate:
+        raise HTTPException(400, f"Unknown template {body.template!r}")
+    return project_repository.summary(session, row)
+
+
+@app.get("/api/projects/{project_id}")
+def get_project(project_id: str, session: Session = Depends(get_session)) -> dict:
+    try:
+        return project_repository.summary(session, project_repository.get(session, project_id))
+    except project_repository.ProjectNotFound:
+        raise HTTPException(404, f"No project with id={project_id!r}")
+
+
+@app.put("/api/projects/{project_id}")
+def update_project(project_id: str, body: ProjectUpdate, session: Session = Depends(get_session)) -> dict:
+    if not body.name.strip():
+        raise HTTPException(400, "The name can't be empty")
+    try:
+        row = project_repository.update(session, project_id, body.name.strip(), body.description, body.settings)
+    except project_repository.ProjectNotFound:
+        raise HTTPException(404, f"No project with id={project_id!r}")
+    return project_repository.summary(session, row)
+
+
+@app.delete("/api/projects/{project_id}", status_code=204)
+def delete_project(project_id: str, session: Session = Depends(get_session)) -> None:
+    try:
+        project_repository.remove(session, project_id)
+    except project_repository.ProjectNotFound:
+        raise HTTPException(404, f"No project with id={project_id!r}")
+
+
+@app.get("/api/projects/{project_id}/export")
+def export_project(project_id: str, session: Session = Depends(get_session)) -> dict:
+    """The project as YAML (same shape as config/agents.yaml) and as JSON."""
+    try:
+        data = project_repository.export(session, project_id)
+    except project_repository.ProjectNotFound:
+        raise HTTPException(404, f"No project with id={project_id!r}")
+    return {"yaml": _yaml_text(data), "json": data}
+
+
+class _ReadableDumper(yaml.SafeDumper):
+    pass
+
+
+def _str_representer(dumper: yaml.SafeDumper, value: str):
+    # Prompts read as written: multi-line text as a literal block.
+    if "\n" in value.strip():
+        return dumper.represent_scalar("tag:yaml.org,2002:str", value.strip() + "\n", style="|")
+    return dumper.represent_scalar("tag:yaml.org,2002:str", value.strip() if value.endswith("\n") else value)
+
+
+_ReadableDumper.add_representer(str, _str_representer)
+
+
+def _yaml_text(data: dict) -> str:
+    return yaml.dump(data, Dumper=_ReadableDumper, sort_keys=False, allow_unicode=True, width=100)
+
+
+app.include_router(agents_router, prefix="/api/projects/{project_id}")
+app.include_router(agents_router, prefix="/api")
+
+
 @app.get("/api/llm/status")
-def llm_status() -> dict:
-    """Which provider VOICE_ORCH_PROVIDER asks for, and which one actually
-    resolves. They differ when a real provider is requested but can't be
-    built (missing key, missing SDK): `get_provider()` then falls back to
-    FakeProvider silently, and the try-it box should say so rather than let
-    the user believe they're testing the real model (D3)."""
-    resolved = type(get_provider()).__name__
-    return {"requested": config.PROVIDER, "resolved": resolved, "real": resolved != "FakeProvider"}
+def llm_status(project_id: str = DEFAULT_PROJECT, session: Session = Depends(get_session)) -> dict:
+    """Which model the project's receptionist asks for, and which one
+    actually resolves. They differ when a real provider is requested but
+    can't be built (missing key, missing SDK): get_provider() then falls
+    back to FakeProvider silently, and the test panel should say so rather
+    than let the user believe they're testing the real model (D3). Blocco
+    8: per project (its default LLM, or the root agent's override)."""
+    settings = project_repository.settings_of(session, project_id)
+    root = repository.build_tree(session, project_id)
+    choice = project_module.llm_for(root, settings) if root else project_module.router_for(settings)
+    resolved = type(project_module.responder(settings)(root)[0]).__name__ if root else "FakeProvider"
+    requested = f"{choice.provider}{' · ' + choice.model if choice.model else ''}"
+    return {"requested": requested, "resolved": resolved, "real": resolved != "FakeProvider"}
 
 
 @app.post("/api/test/route", response_model=TestRouteResponse)
@@ -539,7 +692,7 @@ def test_route(body: TestRouteRequest, request: Request, session: Session = Depe
     `use_configured_provider` (D3), with the configured provider instead, so
     the reply is the one a real call would get; a provider error (bad key,
     network) comes back as a 502 with its message, not a bare 500."""
-    root = repository.build_tree(session)
+    root = repository.build_tree(session, body.project_id)
     if root is None:
         raise HTTPException(400, "No agents yet — create a root agent first")
 
@@ -551,19 +704,25 @@ def test_route(body: TestRouteRequest, request: Request, session: Session = Depe
     call_session.agent_path = [a.id for a in _path_to(root, start.id)]
 
     started_at = datetime.now(timezone.utc)
-    # Visitors get the try-it box too, but never on the paid provider.
+    # Visitors get the try-it box too, but never on a paid model: with
+    # force_fake, both the router and every agent's reply (even one with
+    # its own model) run on FakeProvider.
     use_real = body.use_configured_provider and auth.is_owner(request)
-    provider = get_provider() if use_real else FakeProvider()
+    settings = project_repository.settings_of(session, body.project_id)
+    provider = project_module.router_provider(settings, force_fake=not use_real)
+    responder = project_module.responder(settings, force_fake=not use_real)
     try:
-        result = handle_turn(call_session, root, body.utterance, provider)
+        result = handle_turn(call_session, root, body.utterance, provider, responder=responder)
     except Exception as exc:
-        if isinstance(provider, FakeProvider):
+        if not use_real:
             raise
-        raise HTTPException(502, f"{type(provider).__name__}: {exc}") from exc
+        raise HTTPException(502, f"{type(exc).__name__}: {exc}") from exc
     # Tagged "route_test" (not "chat"/"voice") so the dashboard can tell a
     # single-turn routing check apart from an actual conversation — same
     # record shape, just a different source label.
-    call_log.append(call_log.from_session(call_session, source="route_test", started_at=started_at))
+    call_log.append(
+        call_log.from_session(call_session, source="route_test", started_at=started_at, project_id=body.project_id)
+    )
     return TestRouteResponse(
         agent_id=result.agent.id,
         agent_name=result.agent.name,
@@ -572,11 +731,12 @@ def test_route(body: TestRouteRequest, request: Request, session: Session = Depe
         handed_off=result.handed_off,
         reply=result.reply,
         tool_ids_used=result.tool_ids_used,
-        provider=type(get_provider_for_agent(result.agent, default=provider)).__name__,
+        provider=type(responder(result.agent)[0]).__name__,
     )
 
 
 class ConversationStart(BaseModel):
+    project_id: str = DEFAULT_PROJECT
     start_agent_id: str | None = None
     channel: str = "voice"
     slots: dict = {}
@@ -595,28 +755,43 @@ def start_conversation(body: ConversationStart, request: Request, session: Sessi
     """Fase B: a multi-turn text test (test_conversations.py). Returns the
     conversation id and, when the starting agent has a first message, the
     same greeting event a call publishes. Visitors may use it, always on
-    FakeProvider, like the single-turn box."""
-    root = repository.build_tree(session)
+    FakeProvider, like the single-turn box. Owners can run it on the
+    project's models (router and per-agent replies)."""
+    root = repository.build_tree(session, body.project_id)
     if root is None:
         raise HTTPException(400, "No agents yet — create a root agent first")
     start = root.find(body.start_agent_id) if body.start_agent_id else root
     if start is None:
         raise HTTPException(404, f"No agent with id={body.start_agent_id!r}")
     use_real = body.use_configured_provider and auth.is_owner(request)
-    provider = get_provider() if use_real else FakeProvider()
+    settings = project_repository.settings_of(session, body.project_id)
+    provider = project_module.router_provider(settings, force_fake=not use_real)
+    responder = project_module.responder(settings, force_fake=not use_real)
+    simulated = not use_real or isinstance(responder(start)[0], FakeProvider)
     try:
-        cid = test_conversations.start([a.id for a in _path_to(root, start.id)], body.channel, body.slots, provider)
+        cid = test_conversations.start(
+            [a.id for a in _path_to(root, start.id)],
+            body.channel,
+            body.slots,
+            provider,
+            responder=responder,
+            project_id=body.project_id,
+            simulated=simulated,
+        )
     except test_conversations.ConversationFull as exc:
         raise HTTPException(429, str(exc)) from exc
     greeting = call_events.greeting_event(start, start.first_message) if start.first_message else None
-    return {"id": cid, "greeting": greeting, "simulated": isinstance(provider, FakeProvider), "provider": type(provider).__name__}
+    return {"id": cid, "greeting": greeting, "simulated": simulated, "provider": type(responder(start)[0]).__name__}
 
 
 @app.post("/api/test/conversations/{cid}/turns")
 def conversation_turn(cid: str, body: ConversationTurn, session: Session = Depends(get_session)) -> dict:
     if not body.utterance.strip():
         raise HTTPException(400, "Say something first")
-    root = repository.build_tree(session)
+    project_id = test_conversations.project_of(cid)
+    if project_id is None:
+        raise HTTPException(404, "This test conversation has ended or expired. Start a new one.")
+    root = repository.build_tree(session, project_id)
     if root is None:
         raise HTTPException(400, "No agents yet — create a root agent first")
     try:
@@ -636,7 +811,9 @@ def end_conversation(cid: str) -> Response:
 
 
 @app.get("/api/calls")
-def list_calls(limit: int = 200, source: str | None = None, session: Session = Depends(get_session)) -> dict:
+def list_calls(
+    limit: int = 200, source: str | None = None, project: str | None = None, session: Session = Depends(get_session)
+) -> dict:
     """Newest first, straight off `call_log.jsonl`. `source` filters to one of
     "chat"/"voice"/"route_test"; omit it for everything. Each row carries its
     analysis verdict (`call_successful`, null if never analyzed) but not its
@@ -644,19 +821,25 @@ def list_calls(limit: int = 200, source: str | None = None, session: Session = D
     records = call_log.read_all()
     if source:
         records = [r for r in records if r.source == source]
+    if project:
+        records = [r for r in records if r.project_id == project]
     records = list(reversed(records))[: max(limit, 0)]
     verdicts = analysis_repository.verdicts_by_call(session)
     return {"calls": [{**r.summary_dict(), "call_successful": verdicts.get(r.call_id)} for r in records]}
 
 
 @app.get("/api/calls/stats")
-def call_stats(days: int = 14, include_test: bool = True, session: Session = Depends(get_session)) -> dict:
+def call_stats(
+    days: int = 14, include_test: bool = True, project: str | None = None, session: Session = Depends(get_session)
+) -> dict:
     """Aggregates the whole call log into what the dashboard's stat tiles
     and charts need — one pass over the (small, portfolio-scale) list, no
     separate rollup table to keep in sync. `include_test=false` drops
     `source=="route_test"` entries (the agent builder's own "try it" box)
     from every number here, for a view of real calls only."""
     records = call_log.read_all()
+    if project:
+        records = [r for r in records if r.project_id == project]
     if not include_test:
         records = [r for r in records if r.source != "route_test"]
 

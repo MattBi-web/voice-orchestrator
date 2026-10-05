@@ -67,6 +67,15 @@ class AgentSpec:
     voice_id: str = ""
     voice_stability: float | None = None
     voice_speed: float | None = None
+    # Blocco 8: the rest of the pipeline, per agent. "" = inherit the
+    # project's choice (project.py resolves it). TTS provider/model sit
+    # next to voice_id above; STT can switch when the call reaches this
+    # agent (voice/agent.py applies it at the handover).
+    tts_provider: str = ""
+    tts_model: str = ""
+    stt_provider: str = ""
+    stt_model: str = ""
+    stt_language: str = ""
     children: list["AgentSpec"] = field(default_factory=list)
 
     def iter_subtree(self):
@@ -111,6 +120,11 @@ def _parse_node(node: dict) -> AgentSpec:
         voice_id=node.get("voice_id", ""),
         voice_stability=node.get("voice_stability"),
         voice_speed=node.get("voice_speed"),
+        tts_provider=node.get("tts_provider", ""),
+        tts_model=node.get("tts_model", ""),
+        stt_provider=node.get("stt_provider", ""),
+        stt_model=node.get("stt_model", ""),
+        stt_language=node.get("stt_language", ""),
         children=children,
     )
 
@@ -118,9 +132,28 @@ def _parse_node(node: dict) -> AgentSpec:
 def load_family(path: Path) -> AgentSpec:
     """Loads the whole agent family tree from a YAML file. The file's root is
     the router/receptionist agent; everyone else hangs off it as `children`."""
+    return load_family_file(path)[0]
+
+
+def load_family_file(path: Path) -> tuple[AgentSpec, dict]:
+    """The tree plus the optional top-level `project:` block (blocco 8:
+    name, description and `settings`, the project's default models), {}
+    when the file has none."""
     with open(path, encoding="utf-8") as f:
         data = yaml.safe_load(f)
+    return _parse_node(data["root"]), dict(data.get("project") or {})
+
+
+def family_from_dict(data: dict) -> AgentSpec:
     return _parse_node(data["root"])
+
+
+def family_to_dict(root: AgentSpec, project: dict | None = None) -> dict:
+    out: dict = {}
+    if project:
+        out["project"] = project
+    out["root"] = _node_to_dict(root)
+    return out
 
 
 def _node_to_dict(agent: AgentSpec) -> dict:
@@ -155,14 +188,25 @@ def _node_to_dict(agent: AgentSpec) -> dict:
         node["voice_stability"] = agent.voice_stability
     if agent.voice_speed is not None:
         node["voice_speed"] = agent.voice_speed
+    for key in ("tts_provider", "tts_model", "stt_provider", "stt_model", "stt_language"):
+        if getattr(agent, key):
+            node[key] = getattr(agent, key)
     if agent.children:
         node["children"] = [_node_to_dict(c) for c in agent.children]
     return node
 
 
-def save_family(root: AgentSpec, path: Path) -> None:
+def save_family(root: AgentSpec, path: Path, project: dict | None = None) -> None:
+    """Writes the tree back. Without `project`, an existing file's
+    `project:` block is kept as it was (the CLI's agents add/remove only
+    touch the tree)."""
+    if project is None and Path(path).exists():
+        try:
+            project = load_family_file(Path(path))[1] or None
+        except Exception:
+            project = None
     with open(path, "w", encoding="utf-8") as f:
-        yaml.safe_dump({"root": _node_to_dict(root)}, f, sort_keys=False, allow_unicode=True)
+        yaml.safe_dump(family_to_dict(root, project), f, sort_keys=False, allow_unicode=True)
 
 
 def add_agent(root: AgentSpec, parent_id: str, new_agent: AgentSpec) -> None:

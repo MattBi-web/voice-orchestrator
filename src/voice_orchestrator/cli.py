@@ -9,8 +9,10 @@ from rich.table import Table
 from rich.tree import Tree
 
 from . import call_log, config
-from .agents.registry import AgentSpec, ToolBinding, add_agent, load_family, remove_agent, save_family
+from .agents.registry import AgentSpec, ToolBinding, add_agent, load_family, load_family_file, remove_agent, save_family
 from .llm import get_provider
+from .project import ModelSettings, router_provider
+from .project import responder as project_responder
 from .orchestrator import handle_turn
 from .routing.router import route
 from .state import CallSession
@@ -133,13 +135,21 @@ def chat(
     or '/auth on' to toggle the authenticated slot mid-call (demoes the agent
     gate), '/channel <name>' to switch channel mid-call (demoes per-tool
     conditions — try '/channel sms' then a billing question)."""
-    root = load_family(config.AGENTS_FILE)
-    provider = get_provider(provider_name)
+    root, meta = load_family_file(config.AGENTS_FILE)
+    # Blocco 8: the file's `project:` block chooses the router's and the
+    # agents' models; --provider overrides both for the whole session.
+    settings = ModelSettings.from_dict(meta.get("settings"))
+    if provider_name:
+        provider = get_provider(provider_name)
+        responder = None
+    else:
+        provider = router_provider(settings)
+        responder = project_responder(settings)
     session = CallSession(call_id=str(uuid.uuid4())[:8], channel=channel)
     session.slots["authenticated"] = authenticated
     started_at = datetime.now(timezone.utc)
 
-    console.print("[bold]Meridian Telecom[/bold] — digita 'exit' per terminare la chiamata.\n")
+    console.print(f"[bold]{meta.get('name', root.name)}[/bold] — digita 'exit' per terminare la chiamata.\n")
     if root.first_message:
         console.print(f"[bold magenta]{root.name}:[/bold magenta] {root.first_message}")
         session.agent_path = [root.id]
@@ -157,7 +167,7 @@ def chat(
             console.print(f"[dim](channel = {session.channel!r})[/dim]")
             continue
 
-        result = handle_turn(session, root, utterance, provider)
+        result = handle_turn(session, root, utterance, provider, responder=responder)
         tag = f"[dim]({result.routing.resolved_by}" + (
             f", handoff→{result.agent.id}" if result.handed_off else ""
         ) + (f", tools={result.tool_ids_used}" if result.tool_ids_used else "") + ")[/dim]"

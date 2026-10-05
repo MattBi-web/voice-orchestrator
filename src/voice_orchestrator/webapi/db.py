@@ -61,9 +61,40 @@ def make_engine(target: Path | str | None = None):
         # pre_ping: a managed Postgres closes idle connections; without it
         # the first request after a quiet spell fails on a dead socket.
         engine = create_engine(url, pool_pre_ping=True, pool_recycle=300)
+    migrate_agents_to_projects(engine)
     Base.metadata.create_all(engine)
     sync_columns(engine)
     return engine
+
+
+def migrate_agents_to_projects(engine: Engine) -> bool:
+    """Blocco 8: `agents` gained `project_id` as part of its primary key,
+    which no additive ALTER can do. A database from before projects has its
+    agents read into memory (a family is a handful of rows), the old table
+    dropped, and the rows put back under the "demo" project once
+    create_all() has made the new table. seed.py then gives "demo" its
+    project row. Returns True when it migrated."""
+    inspector = inspect(engine)
+    if not inspector.has_table("agents"):
+        return False
+    old_columns = [c["name"] for c in inspector.get_columns("agents")]
+    if "project_id" in old_columns:
+        return False
+    with engine.begin() as conn:
+        rows = [dict(r._mapping) for r in conn.execute(text('SELECT * FROM "agents"'))]
+        conn.execute(text('DROP TABLE "agents"'))
+    Base.metadata.create_all(engine)
+    sync_columns(engine)
+    from .models import AgentRow
+
+    mapped = {c.name for c in AgentRow.__table__.columns}
+    with engine.begin() as conn:
+        for row in rows:
+            values = {k: v for k, v in row.items() if k in mapped}
+            values["project_id"] = "demo"
+            conn.execute(AgentRow.__table__.insert().values(**values))
+    logger.warning("schema: moved %d agents under the 'demo' project (blocco 8)", len(rows))
+    return True
 
 
 def _sql_literal(value, dialect: str = "sqlite") -> str:
