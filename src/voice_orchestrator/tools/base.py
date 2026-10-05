@@ -30,13 +30,14 @@ class ToolResult:
     # — D10. `summary` is written *for an LLM* and can be an instruction
     # ("Tell the caller, briefly…"): fine as grounding, wrong as a reply read
     # out verbatim. A tool whose summary is plain data (an account balance, a
-    # KB passage) can leave this empty and the summary is used as-is; a tool
-    # whose summary is an instruction sets the caller-facing line here.
-    caller_text: str = ""
+    # KB passage) can leave this as None and the summary is used as-is; a tool
+    # whose summary is an instruction sets the caller-facing line here — and
+    # "" means "say nothing to the caller", not "fall back to the summary".
+    caller_text: str | None = None
 
     @property
     def caller_note(self) -> str:
-        return self.caller_text or self.summary
+        return self.summary if self.caller_text is None else self.caller_text
 
 
 class Tool(ABC):

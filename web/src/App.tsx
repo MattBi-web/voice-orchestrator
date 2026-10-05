@@ -18,14 +18,16 @@ const VoiceTestConsole = lazy(() => import('./components/VoiceTestConsole').then
 const Dashboard = lazy(() => import('./components/Dashboard').then((m) => ({ default: m.Dashboard })))
 const Conversations = lazy(() => import('./components/Conversations').then((m) => ({ default: m.Conversations })))
 const KnowledgeBase = lazy(() => import('./components/KnowledgeBase').then((m) => ({ default: m.KnowledgeBase })))
+const Overview = lazy(() => import('./components/Overview').then((m) => ({ default: m.Overview })))
 const ToolsPage = lazy(() => import('./components/ToolsPage').then((m) => ({ default: m.ToolsPage })))
 
 type Selection = { kind: 'none' } | { kind: 'edit'; agentId: string } | { kind: 'create'; parentId: string }
 
-type View = 'agents' | 'knowledge' | 'tools' | 'call' | 'calls' | 'analytics'
+type View = 'overview' | 'agents' | 'knowledge' | 'tools' | 'call' | 'calls' | 'analytics'
 type AgentsSubview = 'tree' | 'graph'
 
 const NAV: { view: View; label: string; icon: IconName }[] = [
+  { view: 'overview', label: 'Overview', icon: 'home' },
   { view: 'agents', label: 'Agents', icon: 'agents' },
   { view: 'knowledge', label: 'Knowledge', icon: 'book' },
   { view: 'tools', label: 'Tools', icon: 'plug' },
@@ -33,7 +35,7 @@ const NAV: { view: View; label: string; icon: IconName }[] = [
   { view: 'analytics', label: 'Analytics', icon: 'chart' },
 ]
 
-const PAGES: Record<View, { title: string; lede: string }> = {
+const PAGES: Record<Exclude<View, 'overview'>, { title: string; lede: string }> = {
   agents: {
     title: 'Agents',
     lede:
@@ -61,7 +63,7 @@ const PAGES: Record<View, { title: string; lede: string }> = {
   },
 }
 
-function PageHead({ view, actions }: { view: View; actions?: ReactNode }) {
+function PageHead({ view, actions }: { view: Exclude<View, 'overview'>; actions?: ReactNode }) {
   const page = PAGES[view]
   return (
     <header className="page__head">
@@ -88,7 +90,7 @@ function BrandMark() {
 }
 
 function App() {
-  const [view, setView] = useState<View>('agents')
+  const [view, setView] = useState<View>('overview')
   const [agentsSubview, setAgentsSubview] = useState<AgentsSubview>('tree')
   const [selectedCallId, setSelectedCallId] = useState<string | null>(null)
   const [root, setRoot] = useState<Agent | null>(null)
@@ -190,10 +192,10 @@ function App() {
     <AuthContext.Provider value={auth}>
       <div className="shell">
         <nav className="nav" aria-label="Main">
-          <div className="nav__brand">
+          <button type="button" className="nav__brand" onClick={() => go('overview')}>
             <BrandMark />
             Voice Orchestrator
-          </div>
+          </button>
           <button
             type="button"
             className="btn-primary nav__call"
@@ -229,10 +231,12 @@ function App() {
           )}
           {error && <p className="error app__error">{error}</p>}
 
-          <PageHead view={view} actions={view === 'agents' ? agentsActions : undefined} />
+          {view !== 'overview' && <PageHead view={view} actions={view === 'agents' ? agentsActions : undefined} />}
 
           <Suspense fallback={<p className="app__hint">Loading…</p>}>
-            {view === 'knowledge' ? (
+            {view === 'overview' ? (
+              <Overview root={root} go={go} />
+            ) : view === 'knowledge' ? (
               <KnowledgeBase root={root} />
             ) : view === 'tools' ? (
               <ToolsPage onChanged={reload} />

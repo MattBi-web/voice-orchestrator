@@ -1,7 +1,8 @@
 /** A handful of 24px stroke icons drawn for this app — no icon library. */
-export type IconName = 'phone' | 'agents' | 'book' | 'plug' | 'list' | 'chart'
+export type IconName = 'home' | 'phone' | 'agents' | 'book' | 'plug' | 'list' | 'chart'
 
 const PATHS: Record<IconName, string> = {
+  home: 'M4 11l8-7 8 7M6 9.5V20h12V9.5M10 20v-6h4v6',
   phone:
     'M5 4h3l2 5-2.5 1.5a11 11 0 0 0 6 6L15 14l5 2v3a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2',
   agents: 'M12 4v5M12 9l-6 6M12 9v6M12 9l6 6M4 15h4v4H4zM10 15h4v4h-4zM16 15h4v4h-4z',

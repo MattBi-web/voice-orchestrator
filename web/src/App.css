@@ -19,6 +19,7 @@
 }
 
 .nav__brand {
+  text-align: left;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -1693,3 +1694,383 @@
   }
 }
 
+
+/* ---- Overview (blocco 7, fase D) ---- */
+
+.ov {
+  max-width: 920px;
+  display: flex;
+  flex-direction: column;
+  gap: 56px;
+  padding-top: 8px;
+}
+
+.ov-hero h1 {
+  font-size: 38px;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  font-weight: 600;
+  max-width: 20ch;
+  margin-bottom: 16px;
+}
+
+.ov-hero__lede {
+  font-size: 17px;
+  line-height: 1.6;
+  max-width: 60ch;
+  color: var(--ink-2);
+}
+
+.ov-hero__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 24px;
+}
+
+.ov-hero__actions button {
+  padding: 9px 18px;
+  font-size: 15px;
+}
+
+/* The demo: the one place on the page that moves. */
+
+.ov-demo {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  background: var(--surface);
+}
+
+.ov-demo h2 {
+  margin-bottom: 4px;
+}
+
+.ov-demo__lede {
+  color: var(--ink-2);
+  margin-bottom: 16px;
+}
+
+.ov-demo__form {
+  display: flex;
+  gap: 8px;
+}
+
+.ov-demo__form input {
+  font-size: 16px;
+  padding: 10px 12px;
+}
+
+.ov-demo__form button {
+  padding: 10px 20px;
+  font-size: 15px;
+}
+
+.ov-demo__examples {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.ov-example {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  text-align: left;
+  padding: 7px 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: var(--bg);
+}
+
+.ov-example:hover,
+.ov-example--active {
+  border-color: var(--green);
+}
+
+.ov-example--active {
+  box-shadow: inset 0 0 0 1px var(--green);
+}
+
+.ov-example__it {
+  font-size: 14px;
+  color: var(--ink);
+  font-weight: 500;
+}
+
+.ov-example__en {
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+.ov-result {
+  margin-top: 20px;
+}
+
+.ov-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--bg);
+  overflow: hidden;
+}
+
+.ov-step {
+  display: grid;
+  grid-template-columns: 120px 1fr auto;
+  gap: 16px;
+  align-items: baseline;
+  padding: 12px 16px;
+  border-top: 1px solid var(--line);
+  border-left: 3px solid transparent;
+  animation: ov-in 0.28s ease-out both;
+}
+
+.ov-step:first-child {
+  border-top: 0;
+}
+
+.ov-step__level {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.ov-step__num {
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  font-size: 11px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.ov-step--gate_only .ov-step__num {
+  background: var(--gate);
+}
+
+.ov-step--pattern .ov-step__num {
+  background: var(--pattern);
+}
+
+.ov-step--llm_fallback .ov-step__num {
+  background: var(--llm);
+}
+
+.ov-step__text {
+  color: var(--ink-2);
+}
+
+.ov-step__text mark {
+  background: var(--pattern-tint);
+  color: var(--ink);
+  padding: 0 3px;
+  border-radius: 3px;
+}
+
+.ov-step__note {
+  color: var(--ink-3);
+  font-size: 13px;
+}
+
+.ov-step__state {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+
+.ov-step--decided.ov-step--gate_only {
+  border-left-color: var(--gate);
+  background: var(--gate-tint);
+}
+
+.ov-step--decided.ov-step--pattern {
+  border-left-color: var(--pattern);
+  background: var(--pattern-tint);
+}
+
+.ov-step--decided.ov-step--llm_fallback {
+  border-left-color: var(--llm);
+  background: var(--llm-tint);
+}
+
+.ov-step--decided .ov-step__state {
+  color: var(--ink);
+}
+
+.ov-step--skipped .ov-step__level,
+.ov-step--skipped .ov-step__text {
+  opacity: 0.55;
+}
+
+.ov-answer {
+  margin-top: 14px;
+  padding: 14px 16px;
+  border-radius: var(--radius-lg);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  animation: ov-in 0.28s ease-out both;
+}
+
+.ov-answer__who {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+  margin-bottom: 4px;
+}
+
+.ov-answer__tools {
+  font-weight: 400;
+  color: var(--ink-2);
+}
+
+.ov-answer__reply {
+  color: var(--ink);
+  font-size: 15px;
+}
+
+@keyframes ov-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* How it works: a real sequence, so it is numbered by the level colors. */
+
+.ov-levels h2,
+.ov-inside h2 {
+  margin-bottom: 16px;
+}
+
+.ov-levels__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 24px;
+}
+
+.ov-level {
+  border-top: 3px solid;
+  padding-top: 12px;
+}
+
+.ov-level--gate_only {
+  border-color: var(--gate);
+}
+
+.ov-level--pattern {
+  border-color: var(--pattern);
+}
+
+.ov-level--llm_fallback {
+  border-color: var(--llm);
+}
+
+.ov-level h3 {
+  font-size: 16px;
+  margin-bottom: 6px;
+}
+
+.ov-level p {
+  font-size: 14px;
+  color: var(--ink-2);
+}
+
+.ov-stat {
+  margin-top: 24px;
+  color: var(--ink-2);
+}
+
+.ov-stat strong {
+  color: var(--ink);
+}
+
+.ov-inside__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.ov-inside__list li {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: 16px;
+  padding: 12px 0;
+  border-top: 1px solid var(--line);
+  align-items: baseline;
+}
+
+.ov-inside__link {
+  color: var(--green);
+  font-weight: 600;
+  text-align: left;
+  font-size: 15px;
+}
+
+.ov-inside__link:hover {
+  text-decoration: underline;
+}
+
+.ov-foot {
+  font-size: 13px;
+  color: var(--ink-3);
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+@media (max-width: 760px) {
+  .ov {
+    gap: 40px;
+  }
+  .ov-hero h1 {
+    font-size: 28px;
+  }
+  .ov-demo {
+    padding: 16px;
+  }
+  .ov-demo__form {
+    flex-direction: column;
+  }
+  .ov-step {
+    grid-template-columns: 1fr auto;
+  }
+  .ov-step__text {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+  .ov-levels__list {
+    grid-template-columns: 1fr;
+  }
+  .ov-inside__list li {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+}
+
+.ov-steps--idle {
+  margin-top: 20px;
+}
+
+.ov-steps--idle .ov-step {
+  animation: none;
+}
+
+.ov-steps--idle .ov-step__text {
+  color: var(--ink-3);
+}

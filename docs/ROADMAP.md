@@ -302,8 +302,23 @@ priorità al **visitatore che arriva dal link**: ordine A → D → C → B.
       i testi in inglese, frontend e messaggi del backend compresi; criteri di valutazione di default
       con id inglesi (`request_resolved`, `reached_specialist`, `no_human_handover`). Testi per
       visitatori, non per sviluppatori. Su schermi stretti il menu diventa una barra in alto.
-- [ ] **D. Overview** per chi arriva dal link: cosa fa la piattaforma in 10 secondi, come provarla,
-      il router spiegato con lo stesso codice colore. Dashboard e conversazioni rifinite.
+- [x] **D. Overview**, la pagina di arrivo. Il hero è una dimostrazione dal vivo del router, non uno
+      slogan: il visitatore sceglie (o scrive) una frase in italiano e vede i tre livelli in ordine,
+      ciascuno segnato come "Decided", "Passed on" o "Skipped" nel suo colore. Il gate barra gli agenti
+      chiusi e dice perché ("verified callers only"), il pattern evidenzia la parola chiave trovata,
+      l'LLM dichiarato "simulated" quando non c'è un modello. Poi l'agente che risponde, i tool usati e
+      la risposta. Usa `POST /api/test/route`, quindi il router vero, gratis per i visitatori; non
+      parte da solo all'apertura, perché ogni prova registra una chiamata. Sotto: i tre livelli
+      spiegati, la quota reale di decisioni prese senza modello (dalle chiamate registrate, mostrata
+      solo con almeno 5 decisioni), i collegamenti alle sezioni, autore e link al repo.
+      **Corretti strada facendo**, perché la vetrina li avrebbe mostrati a tutti: (1) "Ho un problema
+      con la bolletta" finiva all'assistenza tecnica: il trigger generico `problema` di tech_support
+      catturava qualsiasi frase con un problema dentro, quindi è stato tolto da `config/agents.yaml`;
+      (2) regressione di D10: un `caller_text` vuoto ("non dire niente") ricadeva sul testo per
+      l'LLM, e il chiamante sentiva "The knowledge base has no passage…": ora `None` significa "usa
+      il summary" e `""` significa silenzio, con un test dedicato; (3) la risposta di un tool MCP
+      includeva il prefisso tecnico `[mcp:server/tool]`: ora resta solo nel testo per il modello.
+      Dashboard e conversazioni rifinite: rimandate alla fase B, dopo la fase A sono già leggibili.
 - [ ] **C. Chiamata in vetrina:** schermata di chiamata con trascrizione dal vivo, agente che parla
       e livello del router a ogni turno. Richiede backend: oggi il worker non manda gli eventi di
       routing al browser durante la chiamata (candidato: data channel LiveKit dal worker).
@@ -399,4 +414,5 @@ infrastruttura che nessuna rifinitura della UI chiude.
 | `ab149aa` | Blocco 6, passo 1: modalità condivisa (`VOICE_ORCH_DATABASE_URL`, Postgres o SQLite): chiamate, log webhook, minuti vocali e testo della knowledge nel DB; suite verde anche su Postgres |
 | `6592710` | Blocco 6, passo 2: il worker legge famiglia e tool dal DB a ogni chiamata (D4 chiuso in modalità condivisa); FastAPI serve anche il frontend compilato |
 | `ef0b88d` | Blocco 6, passo 3: accesso owner/visitatori (login, sola lettura, try-it gratuito per i visitatori), immagini Docker per web e worker, `render.yaml` (web + worker + Postgres). Ciclo completo verificato in locale con una chiamata LiveKit vera |
-| (questo commit) | Blocco 7, fase A: nuova struttura con menu laterale, pagina Tools, sistema visivo (Plex, verde centralino, colori dei livelli del router), interfaccia e messaggi del backend in inglese |
+| `216d3be` | Blocco 7, fase A: nuova struttura con menu laterale, pagina Tools, sistema visivo (Plex, verde centralino, colori dei livelli del router), interfaccia e messaggi del backend in inglese |
+| (questo commit) | Blocco 7, fase D: pagina Overview con dimostrazione dal vivo del router; corretti il trigger `problema` della demo, la regressione D10 sui testi vuoti e il prefisso dei tool MCP nelle risposte |

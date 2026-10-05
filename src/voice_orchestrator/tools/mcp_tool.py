@@ -147,6 +147,9 @@ class MCPTool(Tool):
             summary = f"MCP tool '{tool_name}' on '{self._server.name}' failed: {exc}"
         return ToolResult(
             summary=f"[mcp:{self._server.name}/{tool_name}] {summary}",
+            # The tag is provenance for the model and the logs, not something
+            # to read out to the caller (D10).
+            caller_text=summary,
             data={"tool_name": tool_name, "arguments": arguments},
         )
 

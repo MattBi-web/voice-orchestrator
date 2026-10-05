@@ -19,6 +19,16 @@ def _leaf(tool_id: str) -> AgentSpec:
 def test_caller_note_falls_back_to_summary():
     assert ToolResult(summary="saldo 10€").caller_note == "saldo 10€"
     assert ToolResult(summary="Tell the caller X", caller_text="X").caller_note == "X"
+    # "" is a deliberate silence (e.g. no relevant knowledge passage), not a fallback.
+    assert ToolResult(summary="No relevant passage: don't invent one.", caller_text="").caller_note == ""
+
+
+def test_no_knowledge_hit_never_reads_the_instruction_to_the_caller():
+    agent = AgentSpec(
+        id="kb", name="KB", description="d", tools=[ToolBinding(id="knowledge_lookup")], knowledge=["plans_and_offers.md"]
+    )
+    result = handle_turn(CallSession(call_id="d10d"), agent, "zzz qqq", FakeProvider())
+    assert "knowledge base" not in result.reply.lower()
 
 
 def test_transfer_reply_is_not_the_llm_instruction():

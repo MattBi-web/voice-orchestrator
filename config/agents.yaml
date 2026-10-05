@@ -100,7 +100,6 @@ root:
       description: "Handles connectivity and hardware problems; routes to the right specialist."
       triggers:
         - non funziona
-        - problema
         - si è rotto
         - non si connette
         - guasto
