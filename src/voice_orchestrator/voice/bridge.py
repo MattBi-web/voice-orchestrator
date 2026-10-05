@@ -16,6 +16,7 @@ stdout) — both of those live in `agent.py`/`worker.py`, not here.
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 
 from .. import config
@@ -58,14 +59,40 @@ class VoiceBridge:
         return handle_turn(self.session, self.root, utterance.strip(), self.provider)
 
 
+logger = logging.getLogger(__name__)
+
+
+def load_call_family() -> AgentSpec:
+    """The agent family a new call runs on. Shared mode (blocco 6): read
+    fresh from the database at every call — what was saved in the builder a
+    minute ago is what answers this call, with no export and no restart
+    (closes D4) — and the tool registry is re-synced from the same database
+    first, so MCP servers and webhook tools added in the builder are live
+    too. Default mode: config/agents.yaml, as before. An empty database
+    (the web service hasn't seeded it yet) falls back to the YAML rather
+    than failing the call."""
+    if config.shared_mode():
+        from ..webapi import db, mcp_sync, repository, webhook_sync
+
+        with db.session_scope() as s:
+            mcp_sync.sync_registry_from_db(s)
+            webhook_sync.sync_registry_from_db(s)
+            root = repository.build_tree(s)
+        if root is not None:
+            return root
+        logger.warning("shared mode: no agents in the database yet, using %s", config.AGENTS_FILE)
+    return load_family(config.AGENTS_FILE)
+
+
 def new_voice_bridge(call_id: str, provider: LLMProvider | None = None) -> VoiceBridge:
     """What worker.py's entrypoint calls once per LiveKit job — one bridge
-    per phone call, loading the same config/agents.yaml family (and the
-    same VOICE_ORCH_PROVIDER env var) the CLI uses. channel="voice" is the
+    per phone call, on the family `load_call_family()` resolves (the
+    database in shared mode, config/agents.yaml otherwise) and the same
+    VOICE_ORCH_PROVIDER env var the CLI uses. channel="voice" is the
     default CallSession already has, but set explicitly here so an agent's
     `channel == 'voice'`-gated tools behave the same whether the call came
     in through this real voice layer or through `voice-orchestrator chat
     --channel voice`."""
-    root = load_family(config.AGENTS_FILE)
+    root = load_call_family()
     session = CallSession(call_id=call_id, channel="voice")
     return VoiceBridge(session=session, root=root, provider=provider or get_provider())

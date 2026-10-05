@@ -18,6 +18,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 
 from fastapi import Depends, FastAPI, HTTPException
+from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -673,3 +674,29 @@ def _path_to(root, target_id: str) -> list:
         if sub:
             return [root, *sub]
     return []
+
+
+# ---- blocco 6: the built frontend ----
+# Registered last, so every /api route above wins. Resolved per request
+# (not mounted at import) so the dist folder can appear after startup and
+# tests can point config.WEB_DIST_DIR elsewhere.
+
+
+@app.get("/{path:path}", include_in_schema=False)
+def frontend(path: str):
+    if path == "api" or path.startswith("api/"):
+        raise HTTPException(404, "Not Found")
+    dist = config.WEB_DIST_DIR.resolve()
+    index = dist / "index.html"
+    if not index.is_file():
+        raise HTTPException(404, "Frontend not built (cd web && npm run build)")
+    if path:
+        candidate = (dist / path).resolve()
+        if candidate.is_file() and dist in candidate.parents:
+            # Vite puts content hashes in asset file names, so they can be
+            # cached for good; index.html must always be revalidated.
+            cache = "public, max-age=31536000, immutable" if path.startswith("assets/") else "no-cache"
+            return FileResponse(candidate, headers={"Cache-Control": cache})
+    # Anything else is a client-side view: hand back the app shell.
+    return FileResponse(index, headers={"Cache-Control": "no-cache"})
+

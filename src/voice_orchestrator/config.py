@@ -62,6 +62,11 @@ WEBAPI_DB_FILE = Path(os.environ.get("VOICE_ORCH_WEBAPI_DB_FILE", ROOT / "data" 
 # `webapi` extra (sqlalchemy) and, for Postgres, the `postgres` extra.
 DATABASE_URL = os.environ.get("VOICE_ORCH_DATABASE_URL", "").strip()
 
+# The built frontend (web/ → `npm run build`). When it exists, the web API
+# serves it too (blocco 6: one web service in production, no Vite, no
+# cross-origin calls); in development Vite serves the UI and proxies /api.
+WEB_DIST_DIR = Path(os.environ.get("VOICE_ORCH_WEB_DIST_DIR", ROOT / "web" / "dist"))
+
 
 def shared_mode() -> bool:
     """Read at call time (not import time) so tests can flip it."""

@@ -229,11 +229,16 @@ unico con disco condiviso.
       L'incremento dei minuti usa un lock di riga, per due worker che chiudono insieme.
       `tests/test_shared_mode.py` verifica anche che in modalità condivisa non venga scritto nessun
       file.
-- [ ] **Il worker legge la famiglia dal DB** a ogni chiamata, invece di `config/agents.yaml`: quello
-      che salvo nel builder è subito "in onda". Chiude D4. `agents.yaml` resta il seed iniziale e
-      l'export manuale resta utile per la CLI.
-- [ ] **Un solo web service.** FastAPI serve anche `web/dist`: niente Vite in produzione, niente CORS
-      tra domini.
+- [x] **Il worker legge la famiglia dal DB** a ogni chiamata, invece di `config/agents.yaml`: quello
+      che salvo nel builder è subito "in onda". Chiude D4 in modalità condivisa. `agents.yaml` resta
+      il seed iniziale e l'export manuale resta utile per la CLI. **Fatto così:**
+      `voice/bridge.load_call_family()` prima risincronizza dal DB il registry dei tool (server MCP e
+      webhook aggiunti nel builder), poi costruisce l'albero; con il DB ancora vuoto ricade sullo YAML
+      invece di far fallire la chiamata.
+- [x] **Un solo web service.** FastAPI serve anche `web/dist`: niente Vite in produzione, niente CORS
+      tra domini. Una route catch-all registrata per ultima: le `/api/*` hanno sempre la precedenza
+      (un'API sconosciuta resta un 404, non la pagina dell'app); gli asset con hash sono in cache
+      `immutable`, `index.html` in `no-cache`; i path fuori da `dist` vengono rifiutati.
 - [ ] **Accesso.** Login owner con password da variabile d'ambiente (sessione via cookie firmato). I
       visitatori senza login vedono tutto in sola lettura: builder, knowledge base, conversazioni,
       dashboard. Il test vocale è aperto a tutti ma dentro il tetto giornaliero di minuti già
@@ -269,7 +274,7 @@ infrastruttura che nessuna rifinitura della UI chiude.
 | ~~D1~~ | Il campo `voice` dell'agente non era collegato al TTS: la voce era fissa in `voice/worker.py` | — | ✅ risolto nel blocco 2 (`voice_id`/`voice_stability`/`voice_speed`), verificato su una chiamata vera in D12 |
 | ~~D2~~ | Il worker vocale (e la CLI) caricavano solo `config/agents.yaml`, non la famiglia modificata nella UI | — | ✅ risolto: `POST /api/agents/export` scrive la famiglia del builder in `agents.yaml` usando `save_family()` (già esistente, usato da `agents add`/`remove` da CLI). Azione esplicita, non automatica — va rifatta a ogni cambio da propagare. Non serve riavviare: `load_family()` viene chiamato di nuovo a ogni `chat`/`route`/chiamata vocale |
 | ~~D3~~ | Il box "try it" usava sempre `FakeProvider`, anche con un provider vero configurato | — | ✅ risolto: `use_configured_provider` su `POST /api/test/route` + `GET /api/llm/status` (provider richiesto vs. risolto: `get_provider()` ricade su FakeProvider in silenzio se manca la chiave, e la UI ora lo dice). Checkbox nel box, attiva di default quando c'è un provider vero; la risposta riporta il provider che l'ha composta davvero (dopo l'override per agente). Errore del provider → 502 con il messaggio, non 500 |
-| D4 | Doppia fonte di verità: YAML (CLI/test) e SQLite (UI). Dal fix di D2 esiste l'export DB → YAML, ma è manuale: finché non lo si lancia, CLI e worker vocale vedono la famiglia vecchia | voluto per ora, documentato nel README | export automatico a ogni salvataggio, o CLI/worker che leggono il DB |
+| D4 | Doppia fonte di verità: YAML (CLI/test) e SQLite (UI). Dal fix di D2 esiste l'export DB → YAML, ma è manuale | in modalità condivisa (blocco 6, produzione) **non vale più**: il worker legge il DB a ogni chiamata. Resta solo in locale senza `VOICE_ORCH_DATABASE_URL`: CLI e worker locale leggono lo YAML | voluto: la CLI resta senza dipendenze. Chi vuole lo stesso comportamento in locale imposta `VOICE_ORCH_DATABASE_URL=sqlite:///data/agents.db` |
 | ~~D5~~ | Nell'opzione "tool dinamici" erano promessi webhook + MCP; è stato fatto solo MCP | — | ✅ risolto nel blocco 3 (`tools/webhook_tool.py` + UI dedicata) |
 | ~~D6~~ | `config.py` andava in crash con una variabile numerica impostata ma vuota | — | ✅ risolto: valore vuoto = assente (`_env_float`) |
 | D7 | Il worker su Render richiede il piano Standard (2 GB): sul piano da 512 MB va in OOM | costo 25 $/mese | accettato; `num_idle_processes=0` riduce il danno |
@@ -337,4 +342,5 @@ infrastruttura che nessuna rifinitura della UI chiude.
 | `8df57c3` | Blocco 5: knowledge base da UI (documenti da testo/file/URL, vista dei chunk, anteprima del retrieval, picker nel form agente; ricerca condivisa con il tool, cache invalidata alla modifica, chunk a punteggio 0 scartati) |
 | `8a429cb` | D9 (tab caricate su richiesta: chunk iniziale 1.172 → 261 kB) + D12 (voce per agente e chiusura dopo il saluto verificate su una chiamata LiveKit reale; corretti due bug che rompevano ogni chiamata vera: nessuna risposta senza LLM configurato, chiave ElevenLabs col nome sbagliato) |
 | `58ed2f4` | Piano del blocco 6 (piattaforma online: web + worker + Postgres su Render) aggiunto alla roadmap, nessun cambio di codice |
-| (questo commit) | Blocco 6, passo 1: modalità condivisa (`VOICE_ORCH_DATABASE_URL`, Postgres o SQLite): chiamate, log webhook, minuti vocali e testo della knowledge nel DB; suite verde anche su Postgres |
+| `ab149aa` | Blocco 6, passo 1: modalità condivisa (`VOICE_ORCH_DATABASE_URL`, Postgres o SQLite): chiamate, log webhook, minuti vocali e testo della knowledge nel DB; suite verde anche su Postgres |
+| (questo commit) | Blocco 6, passo 2: il worker legge famiglia e tool dal DB a ogni chiamata (D4 chiuso in modalità condivisa); FastAPI serve anche il frontend compilato |

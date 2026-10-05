@@ -106,3 +106,50 @@ def test_try_it_call_is_recorded_in_the_database(shared):
         calls = client.get("/api/calls").json()["calls"]
         assert len(calls) == 1 and calls[0]["source"] == "route_test"
     assert _no_files_written(shared)
+
+
+# ---- passo 2: the worker reads the family and tools from the database ----
+
+
+def test_worker_family_and_tools_come_from_the_database(shared):
+    from voice_orchestrator.tools import REGISTRY
+    from voice_orchestrator.voice.bridge import load_call_family, new_voice_bridge
+
+    with TestClient(app) as client:  # seeds the demo family into the database
+        client.post("/api/agents", json={"id": "vip", "parent_id": "sales", "name": "VIP", "triggers": ["vip"]})
+        client.post(
+            "/api/webhook-tools",
+            json={"name": "dal_builder", "url": "https://example.com/x", "method": "GET", "triggers": ["stato"]},
+        )
+    REGISTRY.pop("webhook:dal_builder", None)  # as on the worker's machine: not registered yet
+
+    root = load_call_family()
+    assert root.find("vip") is not None  # saved in the builder → live for the next call, no export
+    assert "webhook:dal_builder" in REGISTRY
+    assert new_voice_bridge("c-shared").root.find("vip") is not None
+
+
+def test_empty_database_falls_back_to_the_yaml(shared):
+    from voice_orchestrator.voice.bridge import load_call_family
+
+    assert load_call_family().id == "router"  # nothing seeded yet: config/agents.yaml
+
+
+# ---- passo 2: the API serves the built frontend ----
+
+
+def test_frontend_is_served_with_spa_fallback(tmp_path, monkeypatch):
+    dist = tmp_path / "dist"
+    (dist / "assets").mkdir(parents=True)
+    (dist / "index.html").write_text("<html>app</html>")
+    (dist / "assets" / "index-abc.js").write_text("console.log(1)")
+    monkeypatch.setattr(config, "WEB_DIST_DIR", dist)
+    configure_test_db(tmp_path, monkeypatch)
+    with TestClient(app) as client:
+        assert client.get("/").text == "<html>app</html>"
+        assert client.get("/conversazioni/123").text == "<html>app</html>"  # client-side route
+        js = client.get("/assets/index-abc.js")
+        assert js.text == "console.log(1)" and "immutable" in js.headers["cache-control"]
+        assert client.get("/api/health").json() == {"status": "ok"}
+        assert client.get("/api/nope").status_code == 404  # unknown API path is not the app shell
+        assert client.get("/../../etc/passwd").text == "<html>app</html>"  # never outside dist
