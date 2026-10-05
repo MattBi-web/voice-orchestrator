@@ -54,6 +54,11 @@ def test_visitor_demo_features_stay_open_and_free(client, monkeypatch):
     assert r.status_code == 200 and r.json()["provider"] == "FakeProvider"
     assert client.post("/api/knowledge/search", json={"query": "router"}).status_code == 200
     assert client.post("/api/voice/token").status_code == 400  # open to visitors; 400 only for missing LiveKit keys here
+    conv = client.post("/api/test/conversations", json={"use_configured_provider": True})
+    assert conv.status_code == 201 and conv.json()["simulated"] is True
+    cid = conv.json()["id"]
+    assert client.post(f"/api/test/conversations/{cid}/turns", json={"utterance": "il wifi non va"}).status_code == 200
+    assert client.delete(f"/api/test/conversations/{cid}").status_code == 204
 
 
 def test_wrong_password_then_owner_session(client):

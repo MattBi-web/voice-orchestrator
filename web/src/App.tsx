@@ -1,10 +1,10 @@
 import { lazy, Suspense, useEffect, useState, type ReactNode } from 'react'
 import type { Agent } from './types'
 import { api, ApiError } from './api'
-import { findAgent } from './tree'
+import { findAgent, findPath } from './tree'
 import { Tree } from './components/Tree'
 import { AgentForm } from './components/AgentForm'
-import { TestBox } from './components/TestBox'
+import { TestPanel } from './components/TestPanel'
 import { AuthBar } from './components/AuthBar'
 import { Icon, type IconName } from './components/Icon'
 import { AuthContext, type AuthState } from './auth'
@@ -127,6 +127,11 @@ function App() {
   }, [])
 
   const handleSaved = () => {
+    if (selection.kind === 'create') setSelection({ kind: 'edit', agentId: selection.parentId })
+    reload()
+  }
+
+  const handleDeleted = () => {
     setSelection({ kind: 'none' })
     reload()
   }
@@ -153,8 +158,10 @@ function App() {
     }
   }
 
-  const selectedAgent = selection.kind === 'edit' ? findAgent(root, selection.agentId) : undefined
-  const parentAgent = selection.kind === 'create' ? findAgent(root, selection.parentId) : undefined
+  // The agents view always shows an agent: the receptionist until another is picked.
+  const effective: Selection = selection.kind === 'none' && root ? { kind: 'edit', agentId: root.id } : selection
+  const selectedAgent = effective.kind === 'edit' ? findAgent(root, effective.agentId) : undefined
+  const parentAgent = effective.kind === 'create' ? findAgent(root, effective.parentId) : undefined
 
   const go = (next: View) => {
     setView(next)
@@ -222,7 +229,7 @@ function App() {
           </div>
         </nav>
 
-        <div className="page">
+        <div className={view === 'agents' ? 'page page--wide' : 'page'}>
           {auth.authRequired && !auth.owner && (
             <p className="app__readonly">
               You're viewing a read-only demo. Explore the agents, start a call, and try the text test. Sign in to make
@@ -244,74 +251,75 @@ function App() {
               <VoiceTestConsole />
             ) : view === 'analytics' ? (
               <Dashboard
+                root={root}
                 onOpenCall={(callId) => {
                   setSelectedCallId(callId)
                   go('calls')
                 }}
               />
             ) : view === 'calls' ? (
-              <Conversations selectedCallId={selectedCallId} onSelectCall={setSelectedCallId} />
+              <Conversations root={root} selectedCallId={selectedCallId} onSelectCall={setSelectedCallId} />
             ) : loading ? (
               <p className="app__hint">Loading…</p>
             ) : (
-              <div className={agentsSubview === 'graph' ? 'app__layout app__layout--graph' : 'app__layout'}>
-                {agentsSubview === 'graph' && (
-                  <div className="app__graph-panel">
+              <div className={agentsSubview === 'graph' ? 'agents agents--graph' : 'agents'}>
+                {agentsSubview === 'graph' ? (
+                  <div className="agents__graph">
                     <AgentGraph
                       root={root}
-                      selectedId={selection.kind === 'edit' ? selection.agentId : null}
+                      selectedId={effective.kind === 'edit' ? effective.agentId : null}
                       onSelect={(id) => setSelection({ kind: 'edit', agentId: id })}
                       onAddChild={(parentId) => setSelection({ kind: 'create', parentId })}
                       onChanged={reload}
                     />
                   </div>
-                )}
-
-                {agentsSubview === 'tree' && (
-                  <aside className="app__sidebar">
+                ) : (
+                  <aside className="agents__tree">
                     <Tree
                       root={root}
-                      selectedId={selection.kind === 'edit' ? selection.agentId : null}
+                      selectedId={effective.kind === 'edit' ? effective.agentId : null}
                       onSelect={(id) => setSelection({ kind: 'edit', agentId: id })}
                       onAddChild={(parentId) => setSelection({ kind: 'create', parentId })}
                     />
                   </aside>
                 )}
 
-                <main className="app__main">
-                  {selection.kind === 'edit' && selectedAgent && (
+                <main className="agents__page">
+                  {effective.kind === 'edit' && selectedAgent && (
                     <AgentForm
+                      key={selectedAgent.id}
                       mode="edit"
+                      path={findPath(root, selectedAgent.id)}
+                      onSelectAgent={(id) => setSelection({ kind: 'edit', agentId: id })}
                       initial={selectedAgent}
                       availableTools={tools}
                       onCancel={() => setSelection({ kind: 'none' })}
                       onSaved={handleSaved}
-                      onDeleted={handleSaved}
+                      onDeleted={handleDeleted}
                     />
                   )}
 
-                  {selection.kind === 'create' && (
+                  {effective.kind === 'create' && (
                     <AgentForm
+                      key={`new-${effective.parentId}`}
                       mode="create"
-                      parentId={selection.parentId}
+                      path={findPath(root, effective.parentId)}
+                      onSelectAgent={(id) => setSelection({ kind: 'edit', agentId: id })}
+                      parentId={effective.parentId}
                       parentName={parentAgent?.name}
                       availableTools={tools}
-                      onCancel={() => setSelection({ kind: 'none' })}
+                      onCancel={() => setSelection({ kind: 'edit', agentId: effective.parentId })}
                       onSaved={handleSaved}
-                      onDeleted={handleSaved}
+                      onDeleted={handleDeleted}
                     />
                   )}
 
-                  {selection.kind === 'none' && (
-                    <p className="app__hint">
-                      {auth.owner
-                        ? 'Select an agent to edit it, or use + to add a specialist under it.'
-                        : 'Select an agent to see how it is configured.'}
-                    </p>
-                  )}
-
-                  <TestBox root={root} />
+                  {!root && <p className="app__hint">No agents yet.</p>}
                 </main>
+
+                <aside className="agents__test">
+                  <TestPanel root={root} />
+                </aside>
               </div>
             )}
           </Suspense>

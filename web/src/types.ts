@@ -93,6 +93,8 @@ export type CallEvent =
       reply: string
       latency_ms: number | null
       simulated: boolean
+      /** Text tests only: end_call ran and the conversation is over. */
+      ended?: boolean
     }
   | { type: 'ended'; reason: string }
 

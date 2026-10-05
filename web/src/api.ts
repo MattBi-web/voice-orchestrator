@@ -1,4 +1,5 @@
 import type {
+  CallEvent,
   Agent,
   AgentInput,
   AgentLayoutUpdate,
@@ -96,6 +97,25 @@ export const api = {
       body: JSON.stringify(body),
     }),
   listTools: () => request<{ tools: string[] }>('/api/tools'),
+  // ---- blocco 7, fase B: multi-turn text tests ----
+  startConversation: (startAgentId: string | null, channel: string, useConfiguredProvider: boolean) =>
+    request<{ id: string; greeting: Extract<CallEvent, { type: 'greeting' }> | null; simulated: boolean; provider: string }>(
+      '/api/test/conversations',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          start_agent_id: startAgentId,
+          channel,
+          use_configured_provider: useConfiguredProvider,
+        }),
+      },
+    ),
+  conversationTurn: (id: string, utterance: string, slots: Record<string, unknown>) =>
+    request<Extract<CallEvent, { type: 'turn' }>>(`/api/test/conversations/${id}/turns`, {
+      method: 'POST',
+      body: JSON.stringify({ utterance, slots }),
+    }),
+  endConversation: (id: string) => request<void>(`/api/test/conversations/${id}`, { method: 'DELETE' }),
   testRoute: (utterance: string, startAgentId: string | null, channel: string, useConfiguredProvider = false) =>
     request<TestRouteResult>('/api/test/route', {
       method: 'POST',

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import type { CallRecord } from '../types'
+import type { Agent, CallRecord } from '../types'
+import { findAgent } from '../tree'
 import { api, ApiError } from '../api'
 import { ConversationDetail } from './ConversationDetail'
 import { AnalysisConfigEditor } from './AnalysisConfigEditor'
@@ -9,11 +10,12 @@ import { SOURCE_LABELS, formatWhen } from './LevelChip'
 type SubView = 'calls' | 'criteria'
 
 interface Props {
+  root: Agent | null
   selectedCallId: string | null
   onSelectCall: (callId: string | null) => void
 }
 
-export function Conversations({ selectedCallId, onSelectCall }: Props) {
+export function Conversations({ root, selectedCallId, onSelectCall }: Props) {
   const [sub, setSub] = useState<SubView>('calls')
   const [calls, setCalls] = useState<CallRecord[]>([])
   const [error, setError] = useState<string | null>(null)
@@ -84,7 +86,13 @@ export function Conversations({ selectedCallId, onSelectCall }: Props) {
                     <span className={`dashboard__badge dashboard__badge--${c.source}`}>{SOURCE_LABELS[c.source] ?? c.source}</span>
                     <span className="convos__item-time">{formatWhen(c.started_at)}</span>
                   </span>
-                  <span className="convos__item-agent">{c.final_agent_id ?? '—'}</span>
+                  <span className="convos__item-agent">
+                    {c.final_agent_id ? findAgent(root, c.final_agent_id)?.name || c.final_agent_id : '—'}
+                    <span className="convos__item-turns">
+                      {' '}
+                      · {c.turn_count} message{c.turn_count === 1 ? '' : 's'}
+                    </span>
+                  </span>
                   <VerdictChip verdict={c.call_successful} />
                 </button>
               </li>
@@ -92,7 +100,7 @@ export function Conversations({ selectedCallId, onSelectCall }: Props) {
           </ul>
           <div className="convos__detail">
             {selectedCallId ? (
-              <ConversationDetail callId={selectedCallId} onAnalyzed={load} />
+              <ConversationDetail callId={selectedCallId} root={root} onAnalyzed={load} />
             ) : (
               <p className="app__hint">Select a call to see its transcript and evaluation.</p>
             )}

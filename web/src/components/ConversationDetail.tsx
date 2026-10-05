@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
-import type { CallDetail } from '../types'
+import type { Agent, CallDetail } from '../types'
 import { api, ApiError } from '../api'
 import { VerdictChip } from './VerdictChip'
-import { LevelChip, SOURCE_LABELS, formatWhen } from './LevelChip'
+import { SOURCE_LABELS, formatWhen } from './LevelChip'
+import { CallTimeline, transcriptToEvents } from './CallTimeline'
+import { findAgent } from '../tree'
 import { useOwner } from '../auth'
 
 function formatValue(value: string | number | boolean | null): string {
@@ -11,7 +13,15 @@ function formatValue(value: string | number | boolean | null): string {
   return String(value)
 }
 
-export function ConversationDetail({ callId, onAnalyzed }: { callId: string; onAnalyzed: () => void }) {
+export function ConversationDetail({
+  callId,
+  root,
+  onAnalyzed,
+}: {
+  callId: string
+  root: Agent | null
+  onAnalyzed: () => void
+}) {
   const owner = useOwner()
   const [call, setCall] = useState<CallDetail | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -51,8 +61,10 @@ export function ConversationDetail({ callId, onAnalyzed }: { callId: string; onA
         <span className={`dashboard__badge dashboard__badge--${call.source}`}>{SOURCE_LABELS[call.source] ?? call.source}</span>
         <span>{formatWhen(call.started_at)}</span>
         <span>{call.duration_seconds.toFixed(1)}s</span>
-        <span>{call.channel}</span>
-        <span>ended with {call.final_agent_id ?? '—'}</span>
+        <span>{call.channel === 'voice' ? 'Voice' : call.channel === 'chat' ? 'Chat' : call.channel}</span>
+        <span>
+          ended with {call.final_agent_id ? findAgent(root, call.final_agent_id)?.name || call.final_agent_id : '—'}
+        </span>
         <span>{call.handoffs} handover{call.handoffs === 1 ? '' : 's'}</span>
         <code className="convo-detail__id">{call.call_id}</code>
       </div>
@@ -66,38 +78,7 @@ export function ConversationDetail({ callId, onAnalyzed }: { callId: string; onA
             No transcript: this call was recorded before transcripts were saved.
           </p>
         ) : (
-          <ol className="transcript">
-            {call.turns.map((t, i) => (
-              <li key={i} className={`transcript__turn transcript__turn--${t.speaker}`}>
-                <div className="transcript__who">
-                  {t.speaker === 'caller' ? 'Caller' : t.agent_id ?? 'Agent'}
-                </div>
-                <div className="transcript__bubble">{t.text}</div>
-                {t.routing && (
-                  <div className="transcript__trace" title={t.routing.reason}>
-                    <LevelChip level={t.routing.resolved_by} /> routed to <strong>{t.routing.chosen_agent ?? '—'}</strong> in{' '}
-                    {t.routing.latency_ms.toFixed(1)} ms
-                    {t.routing.eligible_agents.length > 0 && <> · candidates {t.routing.eligible_agents.join(', ')}</>}
-                    {t.handoff && (
-                      <span className="transcript__handoff">
-                        {' '}
-                        · handed over from {t.handoff.from_agent}
-                      </span>
-                    )}
-                  </div>
-                )}
-                {t.tools && t.tools.length > 0 && (
-                  <div className="transcript__tools">
-                    {t.tools.map((tool, j) => (
-                      <code key={j} className="transcript__tool">
-                        {tool}
-                      </code>
-                    ))}
-                  </div>
-                )}
-              </li>
-            ))}
-          </ol>
+          <CallTimeline events={transcriptToEvents(call.turns, root)} callerLabel="Caller" />
         )}
       </section>
 

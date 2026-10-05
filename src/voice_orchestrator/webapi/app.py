@@ -24,14 +24,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .. import analysis, call_log, config, knowledge
+from .. import analysis, call_events, call_log, config, knowledge
 from ..agents.registry import save_family
 from ..llm import FakeProvider, get_provider, get_provider_for_agent
 from ..orchestrator import handle_turn
 from ..state import CallSession
 from ..tools import REGISTRY
 from ..tools import webhook_log as webhook_log_module
-from . import analysis_repository, auth, knowledge_repository, mcp_repository, mcp_sync, repository, seed, voice_token, webhook_repository, webhook_sync
+from . import analysis_repository, auth, knowledge_repository, mcp_repository, mcp_sync, repository, seed, test_conversations, voice_token, webhook_repository, webhook_sync
 from .db import get_session
 from .mcp_repository import McpServerInput
 from .models import AgentRow
@@ -574,6 +574,65 @@ def test_route(body: TestRouteRequest, request: Request, session: Session = Depe
         tool_ids_used=result.tool_ids_used,
         provider=type(get_provider_for_agent(result.agent, default=provider)).__name__,
     )
+
+
+class ConversationStart(BaseModel):
+    start_agent_id: str | None = None
+    channel: str = "voice"
+    slots: dict = {}
+    use_configured_provider: bool = False
+
+
+class ConversationTurn(BaseModel):
+    utterance: str
+    # Merged into the session before the turn, e.g. the caller gets
+    # verified mid-conversation ({"authenticated": true}).
+    slots: dict = {}
+
+
+@app.post("/api/test/conversations", status_code=201)
+def start_conversation(body: ConversationStart, request: Request, session: Session = Depends(get_session)) -> dict:
+    """Fase B: a multi-turn text test (test_conversations.py). Returns the
+    conversation id and, when the starting agent has a first message, the
+    same greeting event a call publishes. Visitors may use it, always on
+    FakeProvider, like the single-turn box."""
+    root = repository.build_tree(session)
+    if root is None:
+        raise HTTPException(400, "No agents yet — create a root agent first")
+    start = root.find(body.start_agent_id) if body.start_agent_id else root
+    if start is None:
+        raise HTTPException(404, f"No agent with id={body.start_agent_id!r}")
+    use_real = body.use_configured_provider and auth.is_owner(request)
+    provider = get_provider() if use_real else FakeProvider()
+    try:
+        cid = test_conversations.start([a.id for a in _path_to(root, start.id)], body.channel, body.slots, provider)
+    except test_conversations.ConversationFull as exc:
+        raise HTTPException(429, str(exc)) from exc
+    greeting = call_events.greeting_event(start, start.first_message) if start.first_message else None
+    return {"id": cid, "greeting": greeting, "simulated": isinstance(provider, FakeProvider), "provider": type(provider).__name__}
+
+
+@app.post("/api/test/conversations/{cid}/turns")
+def conversation_turn(cid: str, body: ConversationTurn, session: Session = Depends(get_session)) -> dict:
+    if not body.utterance.strip():
+        raise HTTPException(400, "Say something first")
+    root = repository.build_tree(session)
+    if root is None:
+        raise HTTPException(400, "No agents yet — create a root agent first")
+    try:
+        return test_conversations.turn(cid, root, body.utterance.strip(), body.slots)
+    except test_conversations.ConversationGone as exc:
+        raise HTTPException(404, "This test conversation has ended or expired. Start a new one.") from exc
+    except test_conversations.ConversationFull as exc:
+        raise HTTPException(429, str(exc)) from exc
+    except Exception as exc:  # a real provider failing (bad key, network)
+        raise HTTPException(502, f"{type(exc).__name__}: {exc}") from exc
+
+
+@app.delete("/api/test/conversations/{cid}", status_code=204)
+def end_conversation(cid: str) -> Response:
+    test_conversations.end(cid)
+    return Response(status_code=204)
 
 
 @app.get("/api/calls")

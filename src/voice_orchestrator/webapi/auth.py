@@ -14,8 +14,9 @@ changing the password logs every existing session out.
 Visitors may still POST to a few endpoints, listed in VISITOR_WRITES:
 login itself, the voice test (`/api/voice/token` — the worker's daily
 minutes cap still applies), the knowledge search preview (read-only), and
-the try-it box (`/api/test/route`), which app.py pins to FakeProvider for
-visitors so it never spends LLM tokens.
+the try-it box (`/api/test/route`) and the multi-turn text test
+(`/api/test/conversations…`, matched by prefix), which app.py pins to
+FakeProvider for visitors so they never spend LLM tokens.
 """
 from __future__ import annotations
 
@@ -77,5 +78,15 @@ def is_owner(request: Request) -> bool:
     return not auth_required() or token_valid(request.cookies.get(COOKIE_NAME))
 
 
+# Multi-turn text tests (fase B): create, take turns, end. Same footing as
+# /api/test/route — FakeProvider only for visitors.
+VISITOR_WRITE_PREFIXES = (
+    ("POST", "/api/test/conversations"),
+    ("DELETE", "/api/test/conversations/"),
+)
+
+
 def visitor_may(method: str, path: str) -> bool:
-    return method in SAFE_METHODS or (method, path.rstrip("/")) in VISITOR_WRITES
+    if method in SAFE_METHODS or (method, path.rstrip("/")) in VISITOR_WRITES:
+        return True
+    return any(method == m and path.startswith(p) for m, p in VISITOR_WRITE_PREFIXES)

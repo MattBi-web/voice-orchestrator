@@ -16,10 +16,10 @@ interface Pos {
   y: number
 }
 
-const COL = 250
-const ROW = 76
-const NODE_W = 200
-const NODE_H = 56
+const COL = 300
+const ROW = 96
+const NODE_W = 224
+const NODE_H = 82
 
 /** Left-to-right tree layout: x by depth, y by averaging children — used
  * only for nodes that have never been dragged (layout_x/layout_y both
@@ -45,8 +45,31 @@ function autoLayout(root: Agent): Map<string, Pos> {
   return positions
 }
 
-function truncate(label: string, max = 18): string {
-  return label.length > max ? `${label.slice(0, max - 1)}…` : label
+/** Word-wrap a name into at most two lines that fit the node. */
+function wrap(label: string, max = 25): string[] {
+  const words = label.split(/\s+/)
+  const lines: string[] = ['']
+  for (const w of words) {
+    const cur = lines[lines.length - 1]
+    if (!cur) lines[lines.length - 1] = w
+    else if ((cur + ' ' + w).length <= max) lines[lines.length - 1] = cur + ' ' + w
+    else lines.push(w)
+  }
+  if (lines.length > 2) lines.splice(1, lines.length - 1, lines.slice(1).join(' '))
+  return lines.map((l) => (l.length > max ? `${l.slice(0, max - 1)}…` : l))
+}
+
+/** What a node can do beyond answering, as short chips: the tools that
+ * end or leave the call, and where answers come from. */
+function chips(node: Agent): string[] {
+  const ids = node.tools.map((t) => t.id)
+  const out: string[] = []
+  if (ids.includes('transfer_to_human')) out.push('→ human')
+  if (ids.includes('end_call')) out.push('ends call')
+  if (ids.includes('knowledge_lookup') || node.knowledge.length) out.push('knowledge')
+  const other = ids.filter((t) => !['transfer_to_human', 'end_call', 'knowledge_lookup'].includes(t))
+  if (other.length) out.push(other.length === 1 ? other[0] : `${other.length} tools`)
+  return out
 }
 
 function flattenWithParent(root: Agent): Agent[] {
@@ -86,9 +109,6 @@ function edgeLevels(child: Agent): { gate: boolean; selector: 'pattern' | 'llm' 
   return { gate: Boolean(child.eligibility), selector: child.triggers.length > 0 ? 'pattern' : 'llm' }
 }
 
-const HUMAN_NODE = '__human__'
-const END_CALL_NODE = '__end_call__'
-
 export function AgentGraph({ root, selectedId, onSelect, onAddChild, onChanged }: Props) {
   const owner = useOwner()
   const nodes = useMemo(() => (root ? flattenWithParent(root) : []), [root])
@@ -115,19 +135,10 @@ export function AgentGraph({ root, selectedId, onSelect, onAddChild, onChanged }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [root])
 
-  const hasHuman = nodes.some((n) => n.tools.some((t) => t.id === 'transfer_to_human'))
-  const hasEndCall = nodes.some((n) => n.tools.some((t) => t.id === 'end_call'))
-
   const maxX = Math.max(0, ...[...positions.values()].map((p) => p.x))
-  const virtualX = maxX + COL
-  const virtualPositions: Record<string, Pos> = {
-    [HUMAN_NODE]: { x: virtualX, y: 0 },
-    [END_CALL_NODE]: { x: virtualX, y: ROW * 2 },
-  }
-
-  const maxY = Math.max(ROW * 2, ...[...positions.values()].map((p) => p.y))
-  const width = virtualX + NODE_W + 40
-  const height = maxY + NODE_H + 40
+  const maxY = Math.max(0, ...[...positions.values()].map((p) => p.y))
+  const width = maxX + NODE_W + 24
+  const height = maxY + NODE_H + 24
 
   const matches = (n: Agent) => {
     if (!search.trim()) return true
@@ -273,7 +284,7 @@ export function AgentGraph({ root, selectedId, onSelect, onAddChild, onChanged }
         </span>
         {owner && selectedId && (
           <button type="button" className="btn-link" onClick={() => onAddChild(selectedId)}>
-            + Add specialist under {selectedId}
+            + Add specialist under {nodes.find((n) => n.id === selectedId)?.name || selectedId}
           </button>
         )}
       </div>
@@ -285,89 +296,40 @@ export function AgentGraph({ root, selectedId, onSelect, onAddChild, onChanged }
           onPointerUp={onPointerUp}
           onPointerLeave={onPointerUp}
         >
-          {/* Edges first, so nodes paint on top */}
+          {/* Edges first, so nodes paint on top. Each is drawn in the
+              color of the level that picks the child (pattern if it has
+              keywords, LLM otherwise), dashed when a gate rule stands in
+              front of it; the labels sit at the child's end, where they
+              can't pile up on each other. */}
           {nodes.map((node) =>
             node.children.map((child) => {
               const from = positions.get(node.id)
               const to = positions.get(child.id)
               if (!from || !to) return null
               const levels = edgeLevels(child)
-              const midX = (from.x + NODE_W + to.x) / 2
-              const midY = (from.y + to.y) / 2 + NODE_H / 2
+              const x1 = from.x + NODE_W
+              const y1 = from.y + NODE_H / 2
+              const x2 = to.x
+              const y2 = to.y + NODE_H / 2
+              const bend = Math.max(40, (x2 - x1) / 2)
+              const labels = [...(levels.gate ? ['gate'] : []), levels.selector === 'pattern' ? 'pattern' : 'LLM']
               return (
                 <g key={`${node.id}->${child.id}`} className="agent-graph__edge">
-                  <line
-                    x1={from.x + NODE_W}
-                    y1={from.y + NODE_H / 2}
-                    x2={to.x}
-                    y2={to.y + NODE_H / 2}
-                    className="agent-graph__line"
+                  <path
+                    d={`M${x1},${y1} C${x1 + bend},${y1} ${x2 - bend},${y2} ${x2},${y2}`}
+                    className={`agent-graph__line agent-graph__line--${levels.selector}${levels.gate ? ' agent-graph__line--gated' : ''}`}
                   />
-                  {levels.gate && (
-                    <text x={midX} y={midY - 8} className="agent-graph__edge-label agent-graph__edge-label--gate">
-                      gate
-                    </text>
-                  )}
-                  <text x={midX} y={midY + 8} className="agent-graph__edge-label">
-                    {levels.selector === 'pattern' ? 'pattern' : 'LLM'}
+                  <text x={x2 - 8} y={y2 - 7} className="agent-graph__edge-label">
+                    {labels.map((l, i) => (
+                      <tspan key={l} className={`agent-graph__edge-label--${l.toLowerCase()}`}>
+                        {i > 0 ? ' + ' : ''}
+                        {l}
+                      </tspan>
+                    ))}
                   </text>
                 </g>
               )
             }),
-          )}
-
-          {hasHuman &&
-            nodes
-              .filter((n) => n.tools.some((t) => t.id === 'transfer_to_human'))
-              .map((n) => {
-                const from = positions.get(n.id)
-                const to = virtualPositions[HUMAN_NODE]
-                if (!from) return null
-                return (
-                  <line
-                    key={`human-${n.id}`}
-                    x1={from.x + NODE_W}
-                    y1={from.y + NODE_H / 2}
-                    x2={to.x}
-                    y2={to.y + NODE_H / 2}
-                    className="agent-graph__line agent-graph__line--tool"
-                  />
-                )
-              })}
-          {hasEndCall &&
-            nodes
-              .filter((n) => n.tools.some((t) => t.id === 'end_call'))
-              .map((n) => {
-                const from = positions.get(n.id)
-                const to = virtualPositions[END_CALL_NODE]
-                if (!from) return null
-                return (
-                  <line
-                    key={`end-${n.id}`}
-                    x1={from.x + NODE_W}
-                    y1={from.y + NODE_H / 2}
-                    x2={to.x}
-                    y2={to.y + NODE_H / 2}
-                    className="agent-graph__line agent-graph__line--tool"
-                  />
-                )
-              })}
-
-          {hasHuman && (
-            <g transform={`translate(${virtualPositions[HUMAN_NODE].x},${virtualPositions[HUMAN_NODE].y})`}>
-              <rect width={NODE_W} height={NODE_H} rx={10} className="agent-graph__node agent-graph__node--virtual" />
-              <text x={NODE_W / 2} y={NODE_H / 2 + 4} textAnchor="middle" className="agent-graph__node-title">
-                Human handover
-              </text>
-            </g>
-          )}
-          {hasEndCall && (
-            <g transform={`translate(${virtualPositions[END_CALL_NODE].x},${virtualPositions[END_CALL_NODE].y})`}>
-              <rect width={NODE_W} height={NODE_H} rx={10} className="agent-graph__node agent-graph__node--virtual" />
-              <text x={NODE_W / 2} y={NODE_H / 2 + 4} textAnchor="middle" className="agent-graph__node-title">
-                End of call
-              </text>
-            </g>
           )}
 
           {nodes.map((node) => {
@@ -392,13 +354,47 @@ export function AgentGraph({ root, selectedId, onSelect, onAddChild, onChanged }
                     (dropTargetId === node.id ? ' agent-graph__node--drop-target' : '')
                   }
                 />
-                <text x={10} y={22} className="agent-graph__node-title">
-                  <title>{node.name || node.id}</title>
-                  {truncate(node.name || node.id)}
-                </text>
-                <text x={10} y={40} className="agent-graph__node-sub">
-                  {truncate(node.parent_id === null ? 'root' : node.id, 22)}
-                </text>
+                {(() => {
+                  const lines = wrap(node.name || node.id)
+                  const sub =
+                    node.parent_id === null
+                      ? 'Answers first'
+                      : node.triggers.length
+                        ? `${node.triggers.length} keyword${node.triggers.length === 1 ? '' : 's'}`
+                        : 'No keywords'
+                  const nodeChips = chips(node)
+                  const subY = 19 + lines.length * 15
+                  return (
+                    <>
+                      <title>{node.name || node.id}</title>
+                      {lines.map((l, i) => (
+                        <text key={i} x={12} y={20 + i * 15} className="agent-graph__node-title">
+                          {l}
+                        </text>
+                      ))}
+                      <text x={12} y={subY} className="agent-graph__node-sub">
+                        {sub}
+                      </text>
+                      {nodeChips.reduce<{ x: number; els: React.ReactNode[] }>(
+                          (acc, c) => {
+                            const w = c.length * 6 + 12
+                            if (acc.x + w > NODE_W - 8) return acc
+                            acc.els.push(
+                              <g key={c} transform={`translate(${acc.x}, ${subY + 7})`}>
+                                <rect width={w} height={16} rx={8} className="agent-graph__chip" />
+                                <text x={w / 2} y={11.5} textAnchor="middle" className="agent-graph__chip-text">
+                                  {c}
+                                </text>
+                              </g>,
+                            )
+                            acc.x += w + 4
+                            return acc
+                          },
+                          { x: 12, els: [] },
+                      ).els}
+                    </>
+                  )
+                })()}
                 {owner && (
                   <g transform={`translate(${NODE_W - 24}, 6)`} onClick={(e) => handleDuplicate(node, e)}>
                     <rect width={18} height={18} rx={4} className="agent-graph__dup-btn" />
@@ -412,6 +408,26 @@ export function AgentGraph({ root, selectedId, onSelect, onAddChild, onChanged }
           })}
         </svg>
       </div>
+      <ul className="agent-graph__legend" aria-label="Legend">
+        <li>
+          <svg width="28" height="8" aria-hidden>
+            <line x1="0" y1="4" x2="28" y2="4" className="agent-graph__line agent-graph__line--pattern" />
+          </svg>
+          Pattern: a keyword picks it
+        </li>
+        <li>
+          <svg width="28" height="8" aria-hidden>
+            <line x1="0" y1="4" x2="28" y2="4" className="agent-graph__line agent-graph__line--llm" />
+          </svg>
+          LLM: no keywords, a model picks it
+        </li>
+        <li>
+          <svg width="28" height="8" aria-hidden>
+            <line x1="0" y1="4" x2="28" y2="4" className="agent-graph__line agent-graph__line--gated" />
+          </svg>
+          Gate: a rule decides who can reach it
+        </li>
+      </ul>
     </div>
   )
 }

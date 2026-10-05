@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
-import type { CallRecord, CallStats } from '../types'
+import type { CallRecord, CallStats, Agent } from '../types'
+import { findAgent } from '../tree'
 import { api, ApiError } from '../api'
 import { VerdictChip } from './VerdictChip'
 import { LEVEL_HEX, LEVELS, SOURCE_LABELS, formatWhen } from './LevelChip'
@@ -62,7 +63,7 @@ function MiniBarChart({
   )
 }
 
-export function Dashboard({ onOpenCall }: { onOpenCall: (callId: string) => void }) {
+export function Dashboard({ root, onOpenCall }: { root: Agent | null; onOpenCall: (callId: string) => void }) {
   const palette = useChartPalette()
   const [stats, setStats] = useState<CallStats | null>(null)
   const [calls, setCalls] = useState<CallRecord[]>([])
@@ -173,7 +174,7 @@ export function Dashboard({ onOpenCall }: { onOpenCall: (callId: string) => void
                     <td>
                       <span className={`dashboard__badge dashboard__badge--${c.source}`}>{SOURCE_LABELS[c.source] ?? c.source}</span>
                     </td>
-                    <td>{c.final_agent_id ?? '—'}</td>
+                    <td>{c.final_agent_id ? findAgent(root, c.final_agent_id)?.name || c.final_agent_id : '—'}</td>
                     <td>{c.duration_seconds.toFixed(1)}s</td>
                     <td>{c.handoffs}</td>
                     <td>

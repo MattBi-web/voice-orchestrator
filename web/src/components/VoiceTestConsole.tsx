@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   Room,
   RoomEvent,
@@ -9,8 +9,8 @@ import {
 } from 'livekit-client'
 import type { CallEvent } from '../types'
 import { api, ApiError } from '../api'
-import { describeRule, LevelChip } from './LevelChip'
-import { EXAMPLES, GLOSSES } from '../examples'
+import { EXAMPLES } from '../examples'
+import { CallTimeline } from './CallTimeline'
 import exampleCall from '../exampleCall.json'
 
 /** Same topic call_events.py publishes on. */
@@ -20,7 +20,6 @@ const EVENTS_TOPIC = 'vo.events'
 const EXAMPLE = exampleCall as CallEvent[]
 
 type Status = 'idle' | 'connecting' | 'live' | 'ended' | 'error'
-type TurnEvent = Extract<CallEvent, { type: 'turn' }>
 
 const AGENT_STATES: Record<string, string> = {
   initializing: 'Agent is joining…',
@@ -29,154 +28,8 @@ const AGENT_STATES: Record<string, string> = {
   speaking: 'Speaking',
 }
 
-const stripSpeaker = (reply: string) => reply.replace(/^\[[^\]]*\]\s*/, '')
-
 const formatTimer = (seconds: number) =>
   `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, '0')}`
-
-/** Why the router gave this turn to this agent, in one or two sentences. */
-function explainTurn(ev: TurnEvent): ReactNode {
-  const closed =
-    ev.excluded.length > 0 ? (
-      <>
-        {ev.excluded.map((a, i) => (
-          <span key={a.id}>
-            {i > 0 && ', '}
-            <s>{a.name}</s>
-          </span>
-        ))}{' '}
-        closed: {ev.excluded.map((a) => describeRule(a.rule)).join('; ')}.{' '}
-      </>
-    ) : null
-  let decision: ReactNode
-  if (ev.resolved_by === 'pattern') {
-    decision = ev.keyword ? (
-      <>
-        <mark>{ev.keyword}</mark> is a keyword of <strong>{ev.agent_name}</strong>.
-      </>
-    ) : (
-      <>
-        A keyword points to <strong>{ev.agent_name}</strong>.
-      </>
-    )
-  } else if (ev.resolved_by === 'gate_only') {
-    decision =
-      ev.eligible.length === 0 ? (
-        <>
-          <strong>{ev.from_agent_name}</strong> has no specialists below it, so it keeps the call.
-        </>
-      ) : (
-        <>
-          Only <strong>{ev.agent_name}</strong> is open to this caller.
-        </>
-      )
-  } else {
-    decision = (
-      <>
-        No single keyword match, so the model{' '}
-        {ev.handed_off ? (
-          <>
-            handed the call to <strong>{ev.agent_name}</strong>.
-          </>
-        ) : (
-          <>
-            kept the call with <strong>{ev.agent_name}</strong>.
-          </>
-        )}
-        {ev.simulated && (
-          <span className="call-route__note"> Simulated: no language model on this server, so the reply is a placeholder.</span>
-        )}
-      </>
-    )
-  }
-  return (
-    <>
-      {closed}
-      {decision}
-    </>
-  )
-}
-
-function Timeline({
-  events,
-  callerLabel,
-  pending,
-  endedByYou,
-  glossed,
-}: {
-  events: CallEvent[]
-  callerLabel: string
-  pending: string | null
-  endedByYou: boolean
-  glossed: boolean
-}) {
-  const items: ReactNode[] = []
-  events.forEach((ev, i) => {
-    if (ev.type === 'greeting') {
-      items.push(
-        <li key={`g${i}`} className="call-msg call-msg--agent">
-          <span className="call-msg__who">{ev.agent_name}</span>
-          <p lang="it">{ev.text}</p>
-        </li>,
-      )
-    } else if (ev.type === 'turn') {
-      items.push(
-        <li key={`c${ev.seq}`} className="call-msg call-msg--caller">
-          <span className="call-msg__who">{callerLabel}</span>
-          <p lang="it">{ev.caller}</p>
-          {glossed && GLOSSES[ev.caller] && <span className="call-msg__gloss">{GLOSSES[ev.caller]}</span>}
-        </li>,
-        <li key={`r${ev.seq}`} className={`call-route call-route--${ev.resolved_by}`}>
-          <LevelChip level={ev.resolved_by} />
-          <span className="call-route__text">{explainTurn(ev)}</span>
-          {ev.latency_ms != null && <span className="call-route__ms">{ev.latency_ms.toFixed(1)} ms</span>}
-        </li>,
-      )
-      if (ev.handed_off) {
-        items.push(
-          <li key={`h${ev.seq}`} className="call-mark">
-            Handed over: {ev.from_agent_name} → <strong>{ev.agent_name}</strong>
-          </li>,
-        )
-      }
-      items.push(
-        <li key={`a${ev.seq}`} className="call-msg call-msg--agent">
-          <span className="call-msg__who">
-            {ev.agent_name}
-            {ev.tools.map((t) => (
-              <code key={t} className="call-tool">
-                {t}
-              </code>
-            ))}
-          </span>
-          <p lang="it">{stripSpeaker(ev.reply)}</p>
-        </li>,
-      )
-    } else {
-      items.push(
-        <li key={`e${i}`} className="call-mark call-mark--end">
-          {ev.reason === 'end_call' ? 'The agent ended the call (end_call tool)' : 'Call ended'}
-        </li>,
-      )
-    }
-  })
-  if (pending) {
-    items.push(
-      <li key="pending" className="call-msg call-msg--caller call-msg--pending">
-        <span className="call-msg__who">{callerLabel}</span>
-        <p lang="it">{pending}</p>
-      </li>,
-    )
-  }
-  if (endedByYou && !events.some((e) => e.type === 'ended')) {
-    items.push(
-      <li key="hangup" className="call-mark call-mark--end">
-        You hung up
-      </li>,
-    )
-  }
-  return <ol className="call-timeline">{items}</ol>
-}
 
 /** The call page. Joins a LiveKit room with the browser's microphone and
  * plays the agent's audio, like any LiveKit client. What makes it more than
@@ -387,7 +240,7 @@ export function VoiceTestConsole() {
               {status === 'connecting' ? 'Connecting to the room…' : 'Waiting for the receptionist to pick up…'}
             </p>
           ) : (
-            <Timeline
+            <CallTimeline
               events={showing}
               callerLabel={isExample ? 'Caller' : 'You'}
               pending={pending}

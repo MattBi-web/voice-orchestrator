@@ -3,7 +3,7 @@
 Documento di lavoro: tiene traccia di dove siamo, dove vogliamo arrivare e perché.
 Si aggiorna a ogni feature, nello stesso commit del codice.
 
-Ultimo aggiornamento: 2026-10-05 (blocco 7, fase C)
+Ultimo aggiornamento: 2026-10-05 (blocco 7, fase B: blocco 7 completo)
 
 ---
 
@@ -279,7 +279,7 @@ aggiornata nello stesso commit del codice.
 Si apre in seguito, non in questo blocco: multi-tenant (`workspace_id` su ogni tabella, account,
 inviti), limiti e costi per workspace, più worker in parallelo.
 
-### Blocco 7 — Interfaccia da prodotto  🚧 in corso
+### Blocco 7 — Interfaccia da prodotto  ✅ consegnato
 
 Perché: prima del deploy l'interfaccia era un pannello da sviluppatore. Una pagina lunga di pannelli
 impilati, testi per chi ha scritto il codice ("VOICE_ORCH_PROVIDER", "FakeProvider", "vedi il
@@ -341,9 +341,39 @@ priorità al **visitatore che arriva dal link**: ordine A → D → C → B.
       al chiamante in ordine (saluto, turno billing deciso dal pattern con parola chiave e handoff,
       turno con `end_call`, fine): tutti OK. Non ancora provata dal browser con il microfono vero:
       lo si vede al primo test dopo il deploy (o in locale con `npm run dev` + worker).
-- [ ] **B. Agenti:** pagina dell'agente con sottosezioni (prompt, voce, tool, knowledge), grafo più
-      leggibile (oggi gli archi tratteggiati verso "Human handover"/"End of call" fanno un groviglio
-      e i nomi sono troncati), pannello di test a lato invece che in fondo, test testuale a più turni.
+- [x] **B. Agenti.** La vista Agents è a tre colonne: elenco, pagina dell'agente, pannello di test
+      (sotto i 1280 px il test scende sotto la pagina, sotto i 900 px tutto in colonna). Si apre sempre
+      su un agente (il receptionist finché non se ne sceglie un altro) invece che su un invito a
+      selezionare. **Pagina dell'agente:** percorso nella famiglia cliccabile, nome e id, descrizione,
+      una riga di fatti (regola del gate in parole, quante parole chiave, tool, documenti, voce
+      propria o di famiglia, quanti specialisti sotto), poi le impostazioni in schede: Behavior,
+      Routing, Voice & model, Tools, Knowledge. La barra di salvataggio resta in vista quando ci sono
+      modifiche ("Unsaved changes", "Discard changes"); prima il form si poteva salvare anche senza
+      cambiare nulla e cambiando agente non si riallineava (mancava la `key`). **Test a più turni:**
+      nuovo `webapi/test_conversations.py` con `POST /api/test/conversations` (crea),
+      `…/{id}/turns` (un turno) e `DELETE …/{id}` (chiude). La CallSession resta in memoria tra un
+      turno e l'altro, quindi slot, percorso e storia passano da un turno all'altro come in una
+      chiamata; la famiglia si rilegge dal DB a ogni turno (una modifica salvata a metà conversazione
+      vale dal turno dopo; se l'agente in linea viene cancellato si riparte dal receptionist). Ogni
+      turno restituisce lo stesso evento della chiamata dal vivo, e il pannello lo disegna con la
+      stessa timeline (`CallTimeline.tsx`, estratta dalla pagina di chiamata). Opzioni: da quale agente
+      partire, canale, **"Verified caller"** (imposta `authenticated`, così si vede il gate aprire
+      Billing a metà conversazione) e, solo per l'owner con un modello configurato, risposte dal
+      modello vero. La conversazione finisce nel registro chiamate una volta sola, come `route_test`,
+      quando finisce (arrivederci/`end_call`, "New conversation", uscita dalla pagina o 30 minuti di
+      inattività). Limiti per la demo pubblica: 200 conversazioni aperte, 40 turni ciascuna (429
+      oltre). Aperto ai visitatori come il test a turno singolo, sempre su FakeProvider; il vecchio
+      `TestBox` è stato tolto. **Grafo:** niente più nodi virtuali "Human handover"/"End of call" con
+      un arco tratteggiato da ogni agente (il groviglio): ogni nodo mostra ora come chip quello che fa
+      oltre a rispondere (→ human, ends call, knowledge, altri tool). Archi curvi nel colore del
+      livello che sceglie il figlio (pattern verde acqua, LLM ambra), tratteggiati se davanti c'è una
+      regola di gate, con l'etichetta all'arrivo invece che a metà (prima si sovrapponevano tutte
+      sul receptionist); nomi interi su due righe; legenda sotto. **Calls e Analytics:** la
+      trascrizione di una chiamata registrata usa la stessa timeline (`transcriptToEvents()`):
+      chiamante a destra, agente a sinistra, striscia del livello con la spiegazione, handover e
+      tool; nomi degli agenti invece degli id anche nell'elenco e nella tabella di Analytics. Gate e
+      parola chiave di una chiamata passata si ricostruiscono dalla famiglia attuale, perché il
+      registro salva la decisione ma non la regola.
 
 ### Escluso di proposito (per ora)
 
@@ -435,4 +465,5 @@ infrastruttura che nessuna rifinitura della UI chiude.
 | `ef0b88d` | Blocco 6, passo 3: accesso owner/visitatori (login, sola lettura, try-it gratuito per i visitatori), immagini Docker per web e worker, `render.yaml` (web + worker + Postgres). Ciclo completo verificato in locale con una chiamata LiveKit vera |
 | `216d3be` | Blocco 7, fase A: nuova struttura con menu laterale, pagina Tools, sistema visivo (Plex, verde centralino, colori dei livelli del router), interfaccia e messaggi del backend in inglese |
 | `946dbc1` | Blocco 7, fase D: pagina Overview con dimostrazione dal vivo del router; corretti il trigger `problema` della demo, la regressione D10 sui testi vuoti e il prefisso dei tool MCP nelle risposte |
-| (questo commit) | Blocco 7, fase C: chiamata in vetrina — eventi di routing dal worker al browser sul data channel LiveKit, pagina di chiamata come timeline spiegata turno per turno, chiamata d'esempio generata dal router vero |
+| `055d21b` | Blocco 7, fase C: chiamata in vetrina — eventi di routing dal worker al browser sul data channel LiveKit, pagina di chiamata come timeline spiegata turno per turno, chiamata d'esempio generata dal router vero |
+| (questo commit) | Blocco 7, fase B: vista Agents a tre colonne con pagina dell'agente a schede e pannello di test a più turni (`/api/test/conversations`), grafo senza groviglio, trascrizioni di Calls con la stessa timeline della chiamata |

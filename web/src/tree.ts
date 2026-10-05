@@ -29,3 +29,14 @@ export function findAgent(root: Agent | null, id: string): Agent | null {
   }
   return null
 }
+
+/** root -> ... -> id, or [] when id isn't in the tree. */
+export function findPath(root: Agent | null, id: string): Agent[] {
+  if (!root) return []
+  if (root.id === id) return [root]
+  for (const child of root.children) {
+    const sub = findPath(child, id)
+    if (sub.length) return [root, ...sub]
+  }
+  return []
+}
