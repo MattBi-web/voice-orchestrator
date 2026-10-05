@@ -14,6 +14,8 @@ import type {
   TestRouteResult,
   VoiceStatus,
   VoiceToken,
+  WebhookExecution,
+  WebhookTool,
 } from './types'
 
 // Every function here throws ApiError on a non-2xx response, with the
@@ -94,6 +96,18 @@ export const api = {
     }),
   deleteMcpServer: (name: string) =>
     request<void>(`/api/mcp-servers/${encodeURIComponent(name)}`, { method: 'DELETE' }),
+  listWebhookTools: () => request<{ tools: WebhookTool[] }>('/api/webhook-tools'),
+  createWebhookTool: (data: WebhookTool) =>
+    request<WebhookTool>('/api/webhook-tools', { method: 'POST', body: JSON.stringify(data) }),
+  updateWebhookTool: (name: string, data: WebhookTool) =>
+    request<WebhookTool>(`/api/webhook-tools/${encodeURIComponent(name)}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+  deleteWebhookTool: (name: string) =>
+    request<void>(`/api/webhook-tools/${encodeURIComponent(name)}`, { method: 'DELETE' }),
+  listWebhookExecutions: (limit = 50) =>
+    request<{ executions: WebhookExecution[] }>(`/api/webhook-tools/executions?limit=${limit}`),
   getCall: (callId: string) => request<CallDetail>(`/api/calls/${encodeURIComponent(callId)}`),
   analyzeCall: (callId: string) =>
     request<CallAnalysis>(`/api/calls/${encodeURIComponent(callId)}/analyze`, { method: 'POST' }),

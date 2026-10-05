@@ -137,6 +137,44 @@ export interface McpServer {
   args: string[]
 }
 
+// Blocco 3 — mirrors WebhookParamSchema/WebhookToolIn/WebhookToolOut in
+// schemas.py. A header value may be the literal string "{{secret:NAME}}",
+// resolved server-side from VOICE_ORCH_SECRET_NAME at call time — this type
+// (and the form that edits it) never carries a real secret value.
+export interface WebhookParam {
+  name: string
+  source: 'slot' | 'literal'
+  value: string
+  type: 'string' | 'number' | 'boolean'
+}
+
+export type WebhookMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
+
+export interface WebhookTool {
+  name: string
+  description: string
+  url: string
+  method: WebhookMethod
+  headers: Record<string, string>
+  params: WebhookParam[]
+  triggers: string[]
+  timeout_seconds: number
+}
+
+// Mirrors WebhookExecutionOut / tools/webhook_log.py's Execution.
+export interface WebhookExecution {
+  tool_name: string
+  call_id: string
+  agent_id: string
+  url: string
+  method: string
+  ok: boolean
+  status_code: number | null
+  latency_ms: number
+  error: string
+  at: string
+}
+
 // ---- Conversations + post-call analysis (call_log.transcript_from_session,
 // analysis.AnalysisResult, webapi/analysis_repository.py) ----
 

@@ -1,0 +1,57 @@
+# Custom HTTP tools an agent's "webhook:<name>" tool can call
+# (tools/webhook_tool.py). Each entry becomes one Tool with id
+# "webhook:<name>" — add an entry here, no code change needed, same
+# "config, not code" principle as config/agents.yaml and
+# config/mcp_servers.yaml.
+#
+# Each entry:
+#   name              — tool id suffix -> "webhook:<name>"
+#   url / method      — the HTTP endpoint and verb
+#   headers           — literal values, OR "{{secret:NAME}}" to read
+#                        VOICE_ORCH_SECRET_NAME from the server's own
+#                        environment at call time. A key never stored (or
+#                        shown in the web UI) in cleartext this way.
+#   params            — what gets sent as the query string (GET) or JSON
+#                        body (everything else): each is pulled from
+#                        CallSession.slots by name (source: slot) or fixed
+#                        at setup (source: literal).
+#   triggers          — keyword list, same mechanism as every other tool's
+#                        should_trigger() in this project (see
+#                        tools/base.py — no native LLM function-calling).
+#
+# This file ships with one demo entry so the feature works with zero API
+# keys, the same promise every other config file here makes — but unlike
+# the MCP demo (a local subprocess, no network at all), an HTTP tool
+# inherently needs a real endpoint to call. The demo below hits
+# https://httpbin.org/anything, a free, keyless, widely-used echo endpoint
+# built for exactly this kind of test — it just needs outbound internet.
+# Delete this entry (or this file) to disable webhook tools entirely.
+tools:
+  - name: network_status
+    description: >
+      Stand-in for a real network-operations status API (see
+      tools/account_tool.py's docstring for the same "swap the call site
+      for a real backend" framing) — looks up whether there's a known
+      outage on the caller's line. Wired into the internet-troubleshooting
+      agent in config/agents.yaml.
+    url: "https://httpbin.org/anything"
+    method: POST
+    headers:
+      Content-Type: "application/json"
+      # A header can also read "{{secret:NAME}}" to pull
+      # VOICE_ORCH_SECRET_NAME from the server's own environment at call
+      # time — left out of this demo entry on purpose, so the demo keeps
+      # working with zero setup (a referenced-but-unset secret fails the
+      # call rather than sending it with a blank header); see
+      # tests/test_webhook_tool.py for that path exercised directly.
+    params:
+      - name: line_id
+        source: slot
+        value: account_number
+        type: string
+    triggers:
+      - stato della rete
+      - c'è un guasto
+      - guasto nella mia zona
+      - interruzione di servizio
+    timeout_seconds: 5

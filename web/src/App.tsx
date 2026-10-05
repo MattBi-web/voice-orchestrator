@@ -9,6 +9,7 @@ import { TestBox } from './components/TestBox'
 import { VoiceTestConsole } from './components/VoiceTestConsole'
 import { Dashboard } from './components/Dashboard'
 import { McpServersPanel } from './components/McpServersPanel'
+import { WebhookToolsPanel } from './components/WebhookToolsPanel'
 import { Conversations } from './components/Conversations'
 import './App.css'
 
@@ -230,6 +231,7 @@ function App() {
             <TestBox root={root} />
 
             <McpServersPanel onChanged={reload} />
+            <WebhookToolsPanel onChanged={reload} />
           </main>
         </div>
       )}

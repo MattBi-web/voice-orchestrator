@@ -19,7 +19,8 @@ from .. import config
 from ..agents.registry import AgentSpec, load_family
 from ..analysis import DEFAULT_CRITERIA, DEFAULT_DATA_ITEMS
 from ..tools.mcp_tool import read_raw_server_entries
-from .models import AgentRow, AppMetaRow, DataCollectionItemRow, EvaluationCriterionRow, McpServerRow
+from ..tools.webhook_tool import read_raw_entries as read_raw_webhook_entries
+from .models import AgentRow, AppMetaRow, DataCollectionItemRow, EvaluationCriterionRow, McpServerRow, WebhookToolRow
 
 
 def _already_seeded(session: Session, key: str) -> bool:
@@ -97,6 +98,31 @@ def seed_mcp_if_empty(session: Session, yaml_path: Path | None = None) -> bool:
         row.args = list(entry.get("args", []))
         session.add(row)
     _mark_seeded(session, "mcp_servers_seeded")
+    session.commit()
+    return True
+
+
+def seed_webhook_tools_if_empty(session: Session, yaml_path: Path | None = None) -> bool:
+    """Same idempotent "only if empty" import as seed_mcp_if_empty, for the
+    webhook tools table — config/webhook_tools.yaml -> WebhookToolRow."""
+    already_has_rows = session.scalar(select(WebhookToolRow.name).limit(1)) is not None
+    if already_has_rows or _already_seeded(session, "webhook_tools_seeded"):
+        _mark_seeded(session, "webhook_tools_seeded")
+        session.commit()
+        return False
+    for entry in read_raw_webhook_entries(yaml_path or config.WEBHOOK_TOOLS_FILE):
+        row = WebhookToolRow(
+            name=entry["name"],
+            description=entry.get("description", ""),
+            url=entry.get("url", ""),
+            method=entry.get("method", "POST"),
+            timeout_seconds=float(entry.get("timeout_seconds", 5.0)),
+        )
+        row.headers = dict(entry.get("headers") or {})
+        row.params = list(entry.get("params", []))
+        row.triggers = list(entry.get("triggers", []))
+        session.add(row)
+    _mark_seeded(session, "webhook_tools_seeded")
     session.commit()
     return True
 

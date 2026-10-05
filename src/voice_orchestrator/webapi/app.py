@@ -28,7 +28,8 @@ from ..llm import FakeProvider, get_provider
 from ..orchestrator import handle_turn
 from ..state import CallSession
 from ..tools import REGISTRY
-from . import analysis_repository, mcp_repository, mcp_sync, repository, seed, voice_token
+from ..tools import webhook_log as webhook_log_module
+from . import analysis_repository, mcp_repository, mcp_sync, repository, seed, voice_token, webhook_repository, webhook_sync
 from .db import get_session
 from .mcp_repository import McpServerInput
 from .models import AgentRow
@@ -46,10 +47,15 @@ from .schemas import (
     McpServerOut,
     TestRouteRequest,
     TestRouteResponse,
+    WebhookExecutionOut,
+    WebhookToolIn,
+    WebhookToolOut,
     build_agent_out_tree,
     mcp_row_to_out,
     row_to_out,
+    webhook_row_to_out,
 )
+from .webhook_repository import WebhookToolInput
 
 
 def _startup_seed() -> None:
@@ -61,11 +67,13 @@ def _startup_seed() -> None:
     try:
         seed.seed_if_empty(session)
         seed.seed_mcp_if_empty(session)
+        seed.seed_webhook_tools_if_empty(session)
         seed.seed_analysis_if_empty(session)
         # Always re-sync, even when nothing was just seeded: this is also
         # what makes the registry correct across a plain server restart,
         # when the DB already holds rows from a previous run.
         mcp_sync.sync_registry_from_db(session)
+        webhook_sync.sync_registry_from_db(session)
     finally:
         try:
             next(gen)
@@ -141,6 +149,76 @@ def delete_mcp_server(name: str, session: Session = Depends(get_session)) -> Non
     except mcp_repository.McpServerNotFound:
         raise HTTPException(404, f"No MCP server named {name!r}")
     mcp_sync.sync_registry_from_db(session)
+
+
+@app.get("/api/webhook-tools")
+def list_webhook_tools(session: Session = Depends(get_session)) -> dict:
+    rows = webhook_repository.list_tools(session)
+    return {"tools": [webhook_row_to_out(r) for r in rows]}
+
+
+@app.post("/api/webhook-tools", response_model=WebhookToolOut, status_code=201)
+def create_webhook_tool(body: WebhookToolIn, session: Session = Depends(get_session)) -> WebhookToolOut:
+    data = WebhookToolInput(
+        name=body.name,
+        description=body.description,
+        url=body.url,
+        method=body.method,
+        headers=body.headers,
+        params=[p.model_dump() for p in body.params],
+        triggers=body.triggers,
+        timeout_seconds=body.timeout_seconds,
+    )
+    try:
+        row = webhook_repository.create_tool(session, data)
+    except webhook_repository.WebhookToolNameTaken:
+        raise HTTPException(409, f"Webhook tool name={body.name!r} already exists")
+    # Sync before the response goes out, not after — same reasoning as the
+    # MCP server endpoints above: a client that creates a tool and
+    # immediately tests a route against it must see it live right away.
+    webhook_sync.sync_registry_from_db(session)
+    return webhook_row_to_out(row)
+
+
+@app.put("/api/webhook-tools/{name}", response_model=WebhookToolOut)
+def update_webhook_tool(name: str, body: WebhookToolIn, session: Session = Depends(get_session)) -> WebhookToolOut:
+    data = WebhookToolInput(
+        name=name,
+        description=body.description,
+        url=body.url,
+        method=body.method,
+        headers=body.headers,
+        params=[p.model_dump() for p in body.params],
+        triggers=body.triggers,
+        timeout_seconds=body.timeout_seconds,
+    )
+    try:
+        row = webhook_repository.update_tool(session, name, data)
+    except webhook_repository.WebhookToolNotFound:
+        raise HTTPException(404, f"No webhook tool named {name!r}")
+    webhook_sync.sync_registry_from_db(session)
+    return webhook_row_to_out(row)
+
+
+@app.delete("/api/webhook-tools/{name}", status_code=204)
+def delete_webhook_tool(name: str, session: Session = Depends(get_session)) -> None:
+    tool_id = f"webhook:{name}"
+    if tool_id in repository.list_tool_ids_in_use(session):
+        raise HTTPException(409, f"{tool_id!r} is still attached to one or more agents — detach it first")
+    try:
+        webhook_repository.delete_tool(session, name)
+    except webhook_repository.WebhookToolNotFound:
+        raise HTTPException(404, f"No webhook tool named {name!r}")
+    webhook_sync.sync_registry_from_db(session)
+
+
+@app.get("/api/webhook-tools/executions")
+def list_webhook_executions(limit: int = 50) -> dict:
+    """Newest first, straight off webhook_log.jsonl — the "log esecuzioni
+    tool" tab's data source. Plain JSONL read, same shape as GET /api/calls."""
+    records = webhook_log_module.read_all()
+    records = list(reversed(records))[: max(limit, 0)]
+    return {"executions": [WebhookExecutionOut(**r.as_dict()) for r in records]}
 
 
 @app.get("/api/voice/status")

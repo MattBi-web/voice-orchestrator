@@ -112,7 +112,7 @@ root:
       children:
         - id: tech_internet
           name: "Internet Connectivity Support"
-          description: "Wifi, router, modem, and broadband connectivity troubleshooting."
+          description: "Wifi, router, modem, and broadband connectivity troubleshooting, backed by a custom webhook tool for live outage status."
           triggers:
             - wifi
             - router
@@ -122,7 +122,7 @@ root:
             - banda larga
             - fibr
             - lent
-          tools: ["knowledge_lookup", "transfer_to_human", "end_call"]
+          tools: ["knowledge_lookup", "webhook:network_status", "transfer_to_human", "end_call"]
           knowledge: ["internet_troubleshooting.md"]
           system_prompt: >
             You are Meridian Telecom's internet troubleshooting specialist.

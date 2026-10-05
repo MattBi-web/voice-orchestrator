@@ -415,6 +415,42 @@ dev only, CORS locked to the Vite dev server's own origin, no authentication —
 so in the UI itself, not just here. Don't expose this API past localhost without adding real auth
 first.
 
+**"Tool webhook (HTTP)" panel — custom tools over any REST endpoint, no code.** The other half of
+the "dynamic tools" promise MCP only partly delivered on (`docs/ROADMAP.md`'s D5): point a tool at
+any URL/method, and it's callable from an agent's `tools:` list like any built-in one
+(`tools/webhook_tool.py`'s `WebhookTool`). It follows the exact same shape as the MCP panel above
+it — `config/webhook_tools.yaml` seeds a `WebhookToolRow` table once, edited independently of the
+YAML from then on, synced into `tools.REGISTRY` in place by `webapi/webhook_sync.py` on every
+create/update/delete so a tool created in the browser is callable in the very same request cycle,
+no restart. Three things worth being explicit about:
+
+- *Parameters, not native function-calling.* This project deliberately never lets an LLM fill a
+  tool's arguments (see `tools/base.py`'s module docstring on why) — a webhook fires on the same
+  keyword-trigger mechanism every other tool here uses. So its JSON body/query-string parameters
+  come from exactly two places: `CallSession.slots` by name (e.g. `account_number`, already set
+  earlier in the call) or a literal fixed when the tool is configured. Honest about the trade-off:
+  this can't ask a caller a follow-up question to fill in a missing argument the way a real
+  function-calling tool could.
+- *Secrets never touch the browser or the database.* A header value can be `{{secret:NAME}}`,
+  resolved at call time from `VOICE_ORCH_SECRET_NAME` in the server's own environment — the same
+  convention `LIVEKIT_API_SECRET` already uses. The UI only ever stores/shows the placeholder
+  string. A referenced secret that isn't set fails that one call with a clear error instead of
+  sending a blank header.
+- *Every execution is logged, independent of the main call log.* `data/webhook_log.jsonl`
+  (`tools/webhook_log.py`) — same append-only JSONL shape as `call_log.py`, same reason: the tool
+  itself (and anything importing it — the orchestrator, the CLI, the voice worker) must stay
+  installable with zero `webapi` dependencies. The panel's "Log esecuzioni" tab reads it back via
+  `GET /api/webhook-tools/executions`.
+
+The bundled demo (`network_status`, wired into the `tech_internet` agent) is the one place this
+project's "zero external setup" promise bends slightly: unlike the MCP demo (a local subprocess,
+no network at all), an HTTP tool inherently needs a real endpoint, so it calls
+[httpbin.org](https://httpbin.org)'s `/anything` echo endpoint — free and keyless, but it does need
+outbound internet, and `config/webhook_tools.yaml`'s comment says so rather than hiding it (tracked
+as debt D14). `tests/test_webhook_tool.py` stays offline either way: it exercises the exact same
+`WebhookTool.run()` request-building code against an injected `httpx.MockTransport`, not the real
+network.
+
 **"Conversazioni" tab — transcripts, per-turn routing, post-call analysis.** Every logged call now
 carries its full transcript (`call_log.transcript_from_session()`), and each turn says *why* it went
 where it did: the caller's turn carries its routing decision (level, candidates, latency, reason, and

@@ -16,6 +16,14 @@ KNOWLEDGE_DIR = Path(os.environ.get("VOICE_ORCH_KNOWLEDGE_DIR", ROOT / "data" / 
 # Which external MCP servers an agent's "mcp:<name>" tools connect to —
 # config, not code, same as agents.yaml. Missing file = no MCP tools registered.
 MCP_SERVERS_FILE = Path(os.environ.get("VOICE_ORCH_MCP_SERVERS_FILE", ROOT / "config" / "mcp_servers.yaml"))
+# Blocco 3 — custom HTTP webhook tools (tools/webhook_tool.py), an agent's
+# "webhook:<name>" tools. Same "config, not code" shape as MCP_SERVERS_FILE
+# above; missing file = no webhook tools registered.
+WEBHOOK_TOOLS_FILE = Path(os.environ.get("VOICE_ORCH_WEBHOOK_TOOLS_FILE", ROOT / "config" / "webhook_tools.yaml"))
+# Append-only log of webhook tool executions (tools/webhook_log.py) — the
+# "log delle esecuzioni dei tool" blocco 3 asks for, read back by the agent
+# builder's own tab. Same JSONL shape as CALL_LOG_FILE below, same reason.
+WEBHOOK_LOG_FILE = Path(os.environ.get("VOICE_ORCH_WEBHOOK_LOG_FILE", ROOT / "data" / "webhook_log.jsonl"))
 
 ANTHROPIC_MODEL = os.environ.get("VOICE_ORCH_ANTHROPIC_MODEL", "claude-sonnet-4-5")
 OPENAI_MODEL = os.environ.get("VOICE_ORCH_OPENAI_MODEL", "gpt-4.1-mini")

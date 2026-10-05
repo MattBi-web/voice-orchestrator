@@ -4,6 +4,7 @@ from .end_call_tool import EndCallTool
 from .knowledge_tool import KnowledgeLookupTool
 from .mcp_tool import MCPServerConfig, MCPTool, load_mcp_tools
 from .transfer_tool import TransferToHumanTool
+from .webhook_tool import WebhookTool, WebhookToolConfig, load_webhook_tools
 
 REGISTRY: dict[str, Tool] = {
     tool.id: tool
@@ -13,6 +14,7 @@ REGISTRY: dict[str, Tool] = {
         EndCallTool(),
         KnowledgeLookupTool(),
         *load_mcp_tools(),  # config/mcp_servers.yaml — [] if absent, never raises
+        *load_webhook_tools(),  # config/webhook_tools.yaml — [] if absent, never raises
     )
 }
 
@@ -33,4 +35,7 @@ __all__ = [
     "MCPTool",
     "load_mcp_tools",
     "EndCallTool",
+    "WebhookTool",
+    "WebhookToolConfig",
+    "load_webhook_tools",
 ]

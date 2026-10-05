@@ -3,7 +3,7 @@
 Documento di lavoro: tiene traccia di dove siamo, dove vogliamo arrivare e perché.
 Si aggiorna a ogni feature, nello stesso commit del codice.
 
-Ultimo aggiornamento: 2026-10-04 (blocco 2 + blocco 4)
+Ultimo aggiornamento: 2026-10-05 (D13 + blocco 3)
 
 ---
 
@@ -39,7 +39,7 @@ Legenda: ✅ fatto · 🟡 parziale · ❌ manca · ⏸️ escluso di proposito
 | **Config agente** | `conversation_config`: ASR, turn-taking, TTS (voce, velocità, stabilità), `agent.first_message`, lingua, `prompt.llm` / `temperature` per agente | `first_message`, LLM (provider/modello/temperature) e voce (voice_id/stabilità/velocità) per agente, con fallback alla famiglia. Voce collegata davvero al TTS (vedi debito D12: non verificata su una chiamata reale) | 🟡 |
 | **Famiglie / flusso** | `workflow`: nodi `override_agent`, `standalone_agent`, `phone_number`, `tool` + archi con `forward_condition` | albero di agenti + router a 3 livelli + handoff + **vista a grafo** (nodi/archi annotati col livello di router, drag-and-drop, duplica, ricerca) oltre all'editor ad albero testuale | 🟡 diverso, non indietro |
 | **Tool built-in** | `end_call`, `transfer_to_number`, `transfer_to_agent`, `language_detection`, `voicemail_detection`, `skip_turn` | `transfer_to_human`, `end_call` | 🟡 |
-| **Tool custom** | webhook HTTP con parametri in JSON schema, client tool, secrets | tool Python fissi + server MCP gestibili da UI | 🟡 manca il webhook |
+| **Tool custom** | webhook HTTP con parametri in JSON schema, client tool, secrets | tool Python fissi + server MCP gestibili da UI + **tool webhook HTTP gestibili da UI** (URL/metodo/header/parametri, secrets via variabile d'ambiente, log esecuzioni) | ✅ (manca ancora il "client tool" lato browser) |
 | **MCP** | CRUD server, lista tool, approval policy | CRUD server da UI, attivi senza riavvio | ✅ (senza approval policy) |
 | **Knowledge base** | upload file/URL/testo, crawl, indice RAG, cartelle | file markdown in `data/knowledge/` referenziati per nome, BM25 | 🟡 |
 | **Test testuale** | "simulate conversation" | box "try it" (un turno, FakeProvider) | 🟡 |
@@ -101,11 +101,43 @@ CAI e alla tesi sulle sales force) e senza trascrizioni salvate nessuna analisi 
       (`EligibilityBuilder.tsx`); voce è un dropdown di preset ElevenLabs + id personalizzato
       (`VoicePicker.tsx`); LLM è un dropdown provider + modello/temperature (`LlmOverridePicker.tsx`).
 
-### Blocco 3 — Tool webhook HTTP
+### Blocco 3 — Tool webhook HTTP  ✅ consegnato
 
-- [ ] Tool custom: URL, metodo, header, parametri in JSON schema.
-- [ ] Secrets per le chiavi usate negli header (mai in chiaro nella UI).
-- [ ] Log delle esecuzioni dei tool.
+- [x] Tool custom: URL, metodo (GET/POST/PUT/PATCH/DELETE), header, parametri.
+      `tools/webhook_tool.py` (`WebhookTool`/`WebhookToolConfig`), config-driven
+      esattamente come i server MCP (`config/webhook_tools.yaml`, mirror
+      web-editable in `webapi/webhook_repository.py` + `webhook_sync.py`, stesso
+      pattern "sincronizza il registry in-place, usabile dal turno dopo senza
+      riavvio" di `mcp_sync.py`). I "parametri in JSON schema" che l'originale
+      prometteva sono presi da due soli posti — uno slot della chiamata
+      (`session.slots[...]`) o un valore letterale fissato in fase di
+      configurazione — mai da un'estrazione LLM a testo libero: questo progetto
+      non usa native function-calling (vedi `tools/base.py`), quindi
+      `should_trigger()` resta lo stesso meccanismo a parole-chiave di ogni
+      altro tool, non un riempimento di schema.
+- [x] Secrets mai in chiaro nella UI: un valore header può essere
+      `{{secret:NOME}}`, risolto a tempo di chiamata leggendo
+      `VOICE_ORCH_SECRET_NOME` dall'ambiente del server — mai salvato né
+      mostrato nel browser o nel DB. Un secret referenziato ma non impostato
+      fa fallire quella singola chiamata con un errore chiaro, non invia un
+      header vuoto in silenzio.
+- [x] Log delle esecuzioni dei tool: ogni chiamata webhook (successo o
+      fallimento) viene accodata a `data/webhook_log.jsonl`
+      (`tools/webhook_log.py`, stesso formato JSONL-append-only di
+      `call_log.py`, stessa ragione: zero dipendenze extra nel core), letta
+      dalla tab "Log esecuzioni" del pannello (`GET
+      /api/webhook-tools/executions`).
+- [x] Demo pronta all'uso: `config/webhook_tools.yaml` include un tool
+      `network_status` agganciato all'agente `tech_internet`
+      (`webhook:network_status` in `config/agents.yaml`) — a differenza del
+      demo MCP (un processo locale, zero rete), un tool HTTP ha bisogno per
+      forza di un endpoint vero: punta a `https://httpbin.org/anything`
+      (gratuito, senza chiave, pensato apposta per questo), quindi richiede
+      internet in uscita — dichiarato esplicitamente nel commento YAML invece
+      di nasconderlo. I test (`tests/test_webhook_tool.py`) restano comunque
+      offline al 100%: esercitano lo stesso identico percorso di
+      `WebhookTool.run()` contro un `httpx.MockTransport` iniettato, non
+      contro la rete vera.
 
 ### Blocco 4 — Vista grafo delle famiglie  ✅ consegnato
 
@@ -148,7 +180,7 @@ infrastruttura che nessuna rifinitura della UI chiude.
 | ~~D2~~ | Il worker vocale (e la CLI) caricavano solo `config/agents.yaml`, non la famiglia modificata nella UI | — | ✅ risolto: `POST /api/agents/export` scrive la famiglia del builder in `agents.yaml` usando `save_family()` (già esistente, usato da `agents add`/`remove` da CLI). Azione esplicita, non automatica — va rifatta a ogni cambio da propagare. Non serve riavviare: `load_family()` viene chiamato di nuovo a ogni `chat`/`route`/chiamata vocale |
 | D3 | Il box "try it" usa sempre `FakeProvider`, anche con un provider vero configurato | il test testuale non riflette le risposte reali | opzione per usare il provider configurato |
 | D4 | Doppia fonte di verità: YAML (CLI/test) e SQLite (UI) non si sincronizzano | voluto per ora, documentato nel README | export DB → YAML, o CLI che legge il DB |
-| D5 | Nell'opzione "tool dinamici" erano promessi webhook + MCP; è stato fatto solo MCP | buco nella funzionalità | blocco 3 |
+| ~~D5~~ | Nell'opzione "tool dinamici" erano promessi webhook + MCP; è stato fatto solo MCP | — | ✅ risolto nel blocco 3 (`tools/webhook_tool.py` + UI dedicata) |
 | ~~D6~~ | `config.py` andava in crash con una variabile numerica impostata ma vuota | — | ✅ risolto: valore vuoto = assente (`_env_float`) |
 | D7 | Il worker su Render richiede il piano Standard (2 GB): sul piano da 512 MB va in OOM | costo 25 $/mese | accettato; `num_idle_processes=0` riduce il danno |
 | D8 | Python 3.14 nel venv locale: `livekit-api` non si installava | ambiente rotto | usare Python 3.11/3.12 (fatto sul Mac) |
@@ -157,6 +189,7 @@ infrastruttura che nessuna rifinitura della UI chiude.
 | D11 | L'euristica di valutazione (senza chiavi) dà verdetti poco sensati, es. "Agente giusto: fallito" su un instradamento corretto | etichettata come euristica, ma può confondere in una demo | per la demo pubblica configurare un provider vero; in alternativa criteri strutturali (es. agente finale atteso) |
 | **D12** | La voce per-agente (`tts_node()` override) e la chiusura automatica della chiamata dopo `end_call` (attesa euristica sul conteggio parole + `ctx.delete_room()`) sono state scritte leggendo l'API reale di `livekit-agents` 1.8.4 installata in questo ambiente, ma **mai eseguite contro una chiamata LiveKit vera** — qui non ci sono credenziali LiveKit/Deepgram/ElevenLabs. Rischio concreto: `Agent.tts` potrebbe essere letto una sola volta all'ingresso nell'agente invece che "a runtime" come dice la sua docstring, nel qual caso lo scambio di `self._tts` non avrebbe effetto | la voce per-agente e l'hangup automatico potrebbero non funzionare finché non testati su una chiamata reale | testare su una chiamata vera (serve `LIVEKIT_URL`/`DEEPGRAM_API_KEY`/`ELEVENLABS_API_KEY`) appena disponibili; se `tts_node()` non basta, l'alternativa è passare a LiveKit's multi-agent handoff pattern (un'istanza `Agent` per sotto-agente, con `session.update_agent()`), più invasivo |
 | ~~D13~~ | Il grafo (blocco 4) non supporta il reparenting: si può trascinare un nodo visivamente ma il suo genitore nell'albero non cambia | limite preesistente di `repository.update_agent` (mai esposto, non introdotto ora) | ✅ risolto: `PATCH /api/agents/{id}/parent` (`repository.reparent_agent`, con `_is_descendant` anti-ciclo) + nel grafo, trascinare un nodo sopra un altro nodo (invece che su spazio vuoto) chiede conferma e sposta il sotto-albero; trascinare un nodo su un proprio discendente non è un bersaglio valido (stesso controllo lato client, poi comunque ribadito dal backend) |
+| **D14** | Il tool webhook demo (`network_status`, blocco 3) punta a `https://httpbin.org/anything` — a differenza di ogni altro demo in questo progetto (MCP: un processo locale; agenti/tool built-in: zero rete), questo ha bisogno per forza di internet in uscita, perché un tool HTTP non ha un equivalente "stdio locale" | il "try it"/la chiamata vocale di demo che tocca `tech_internet` con una frase come "stato della rete" fallisce offline o dietro un firewall che blocca httpbin.org | accettato e dichiarato esplicitamente nel commento YAML, non nascosto; i test restano offline al 100% (`httpx.MockTransport`, vedi tests/test_webhook_tool.py) — se serve un demo offline, l'alternativa è un server HTTP locale bundlato con lifecycle proprio, più invasivo di quanto valga per questa demo |
 
 ---
 
@@ -175,6 +208,9 @@ infrastruttura che nessuna rifinitura della UI chiude.
 | 2026-10 | Voce per agente via `tts_node()` override (scambio di `self._tts`), non via il multi-agent handoff pattern di LiveKit (un'istanza `Agent` per sotto-agente) | l'architettura usa già un `OrchestratorAgent` unico per tutta la chiamata (il router interno gestisce gli handoff, non LiveKit) — cambiarlo per la sola voce avrebbe significato riscrivere il modello della chiamata per un singolo campo |
 | 2026-10 | Il grafo (blocco 4) mostra solo archi genitore→figlio (sempre veri) + archi tratteggiati verso nodi virtuali per i tool di uscita (`transfer_to_human`/`end_call`), non un grafo di stato libero come il `workflow` di ElevenLabs | `routing/router.py` guarda solo in basso nell'albero — un grafo più "ricco" mentirebbe su come funziona davvero il routing |
 | 2026-10 | D13 (reparenting nel grafo): il trascinamento esistente fa doppio uso — su spazio vuoto sposta solo `layout_x`/`layout_y`, su un altro nodo cambia `parent_id` (con conferma) | riusa il gesto già presente invece di aggiungere un widget dedicato; il controllo anti-ciclo lato client (`subtreeIds`) è solo per disabilitare bersagli non validi durante il trascinamento — l'unica fonte di verità resta `reparent_agent` lato backend |
+| 2026-10 | Blocco 3: i secrets per gli header dei tool webhook vivono solo come variabili d'ambiente (`VOICE_ORCH_SECRET_<NOME>`), referenziate con `{{secret:NOME}}` nella UI — non un secrets store cifrato nel DB | stessa convenzione già usata per `LIVEKIT_API_SECRET`/le chiavi dei provider LLM: zero infrastruttura nuova, e un valore che non passa mai per browser/DB non può trapelare da lì per costruzione |
+| 2026-10 | Blocco 3: i parametri di un tool webhook vengono da `session.slots[...]` (per nome) o da un valore letterale fissato in configurazione, mai da un'estrazione LLM del testo dell'utterance | coerente con la scelta di progetto di non usare native function-calling (vedi `tools/base.py`): un tool si attiva per parola-chiave, quindi i suoi argomenti non possono venire da un riempimento di schema che richiederebbe esattamente il meccanismo che il progetto evita |
+| 2026-10 | Blocco 3: log delle esecuzioni webhook in un JSONL dedicato (`data/webhook_log.jsonl`, `tools/webhook_log.py`), non negli `attributes` di `CallSession.event_log`/`call_log.jsonl` | stesso principio di `call_log.py`: il tool che fa la chiamata HTTP (e quindi `orchestrator.py`, la CLI, il worker vocale che lo importano) deve restare installabile con zero dipendenze `webapi` (niente sqlalchemy/fastapi); un file JSONL separato ottiene lo stesso risultato senza toccare `orchestrator.py` o lo schema di `CallRecord` |
 
 ---
 
@@ -190,4 +226,5 @@ infrastruttura che nessuna rifinitura della UI chiude.
 | `f419011` | Blocco 1: trascrizioni per turno, tab Conversazioni, criteri + analisi post-call |
 | `b094f8a` | Fix D2: `POST /api/agents/export` — il builder scrive su `agents.yaml` su richiesta |
 | `c55fea8` | Blocco 2 (modello agente più profondo: first_message, LLM e voce per agente, tool `end_call`, picker veri) + blocco 4 (vista a grafo con drag-and-drop, duplica, ricerca, badge di livello router) |
-| (questo commit) | D13: reparenting nel grafo — trascinare un nodo sopra un altro ne cambia il genitore (con conferma e anti-ciclo) |
+| `5ab1db0` | D13: reparenting nel grafo — trascinare un nodo sopra un altro ne cambia il genitore (con conferma e anti-ciclo) |
+| (questo commit) | Blocco 3: tool webhook HTTP (URL/metodo/header/parametri, secrets via variabile d'ambiente, log esecuzioni) — risolve anche D5 |

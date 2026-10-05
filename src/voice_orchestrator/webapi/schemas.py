@@ -10,7 +10,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from .models import AgentRow, McpServerRow
+from .models import AgentRow, McpServerRow, WebhookToolRow
 
 
 class ToolBindingSchema(BaseModel):
@@ -171,6 +171,67 @@ class McpServerOut(BaseModel):
 
 def mcp_row_to_out(row: McpServerRow) -> McpServerOut:
     return McpServerOut(name=row.name, command=row.command, args=row.args)
+
+
+class WebhookParamSchema(BaseModel):
+    name: str
+    source: Literal["slot", "literal"] = "slot"
+    value: str = ""
+    type: Literal["string", "number", "boolean"] = "string"
+
+
+class WebhookToolIn(BaseModel):
+    """`name` is only read on create — PUT's path parameter identifies the
+    row being updated, same convention as McpServerIn."""
+
+    name: str
+    description: str = ""
+    url: str = ""
+    method: Literal["GET", "POST", "PUT", "PATCH", "DELETE"] = "POST"
+    headers: dict[str, str] = Field(default_factory=dict)
+    params: list[WebhookParamSchema] = Field(default_factory=list)
+    triggers: list[str] = Field(default_factory=list)
+    timeout_seconds: float = 5.0
+
+
+class WebhookToolOut(BaseModel):
+    name: str
+    description: str
+    url: str
+    method: str
+    headers: dict[str, str]
+    params: list[WebhookParamSchema]
+    triggers: list[str]
+    timeout_seconds: float
+
+
+def webhook_row_to_out(row: WebhookToolRow) -> WebhookToolOut:
+    return WebhookToolOut(
+        name=row.name,
+        description=row.description,
+        url=row.url,
+        method=row.method,
+        headers=row.headers,
+        params=[WebhookParamSchema(**p) for p in row.params],
+        triggers=row.triggers,
+        timeout_seconds=row.timeout_seconds,
+    )
+
+
+class WebhookExecutionOut(BaseModel):
+    """Mirrors tools/webhook_log.py's Execution dataclass — one row per
+    logged call to a custom HTTP tool."""
+
+    tool_name: str
+    call_id: str
+    agent_id: str
+    url: str
+    method: str
+    ok: bool
+    status_code: int | None
+    latency_ms: float
+    error: str
+    at: str
 
 
 class CriterionSchema(BaseModel):

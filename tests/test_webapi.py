@@ -21,6 +21,8 @@ def client(tmp_path, monkeypatch):
     # nothing here should touch a developer's real data/call_log.jsonl, and
     # tests must not see each other's logged calls.
     monkeypatch.setattr(config, "CALL_LOG_FILE", tmp_path / "test_call_log.jsonl")
+    # Same isolation for blocco 3's webhook execution log.
+    monkeypatch.setattr(config, "WEBHOOK_LOG_FILE", tmp_path / "test_webhook_log.jsonl")
     # Post-call analysis uses the configured provider; pin it to the
     # zero-key FakeProvider so a developer's own VOICE_ORCH_PROVIDER can't
     # turn this suite into real (billed) LLM calls.
@@ -384,6 +386,114 @@ def test_mcp_server_delete_roundtrip_and_drops_from_registry(client):
 def test_mcp_server_delete_unknown_is_404(client):
     r = client.delete("/api/mcp-servers/does_not_exist")
     assert r.status_code == 404
+
+
+def test_webhook_tools_auto_seeds_the_bundled_demo_entry(client):
+    """config/webhook_tools.yaml ships with one "network_status" entry —
+    same auto-seed-on-first-request behaviour as /api/mcp-servers."""
+    tools = client.get("/api/webhook-tools").json()["tools"]
+    assert [t["name"] for t in tools] == ["network_status"]
+    assert tools[0]["url"] == "https://httpbin.org/anything"
+    assert tools[0]["method"] == "POST"
+    assert tools[0]["params"] == [{"name": "line_id", "source": "slot", "value": "account_number", "type": "string"}]
+
+
+def test_webhook_tool_create_makes_it_usable_without_a_restart(client):
+    """The whole point of webhook_sync.py: a tool created through the API
+    must appear in tools.REGISTRY (via GET /api/tools) in the very same
+    process, with zero restart — not just present in a later GET of its own
+    list. No live HTTP call here on purpose — webapi tests stay offline."""
+    created = client.post(
+        "/api/webhook-tools",
+        json={
+            "name": "order_status",
+            "description": "Looks up an order.",
+            "url": "https://example.test/orders",
+            "method": "GET",
+            "headers": {"Authorization": "{{secret:ORDERS_API_KEY}}"},
+            "params": [{"name": "order_id", "source": "slot", "value": "order_id", "type": "string"}],
+            "triggers": ["dov'è il mio ordine"],
+            "timeout_seconds": 3,
+        },
+    )
+    assert created.status_code == 201
+    body = created.json()
+    assert body["name"] == "order_status"
+    assert body["headers"] == {"Authorization": "{{secret:ORDERS_API_KEY}}"}  # stored as-written, never resolved here
+    assert body["params"][0]["value"] == "order_id"
+
+    assert "webhook:order_status" in client.get("/api/tools").json()["tools"]
+
+
+def test_webhook_tool_create_rejects_duplicate_name(client):
+    r = client.post("/api/webhook-tools", json={"name": "network_status", "url": "https://x.test"})
+    assert r.status_code == 409
+
+
+def test_webhook_tool_update_roundtrip(client):
+    updated = client.put(
+        "/api/webhook-tools/network_status",
+        json={"name": "network_status", "url": "https://example.test/status", "method": "GET", "timeout_seconds": 2},
+    )
+    assert updated.status_code == 200
+    assert updated.json()["url"] == "https://example.test/status"
+    assert updated.json()["method"] == "GET"
+    assert updated.json()["timeout_seconds"] == 2
+
+
+def test_webhook_tool_update_unknown_is_404(client):
+    r = client.put("/api/webhook-tools/does_not_exist", json={"name": "does_not_exist", "url": "https://x.test"})
+    assert r.status_code == 404
+
+
+def test_webhook_tool_delete_blocked_while_an_agent_still_uses_it(client):
+    """config/agents.yaml's "tech_internet" agent has tools: [...,
+    "webhook:network_status", ...] — the seeded agents DB mirrors that, so
+    deleting "network_status" out from under it would leave a dangling tool
+    reference, same guard as the MCP server delete above."""
+    r = client.delete("/api/webhook-tools/network_status")
+    assert r.status_code == 409
+
+
+def test_webhook_tool_delete_roundtrip_and_drops_from_registry(client):
+    client.post("/api/webhook-tools", json={"name": "scratch", "url": "https://example.test/scratch"})
+    assert "webhook:scratch" in client.get("/api/tools").json()["tools"]
+
+    deleted = client.delete("/api/webhook-tools/scratch")
+    assert deleted.status_code == 204
+    assert "webhook:scratch" not in client.get("/api/tools").json()["tools"]
+    assert [t["name"] for t in client.get("/api/webhook-tools").json()["tools"]] == ["network_status"]
+
+
+def test_webhook_tool_delete_unknown_is_404(client):
+    r = client.delete("/api/webhook-tools/does_not_exist")
+    assert r.status_code == 404
+
+
+def test_webhook_executions_empty_log_is_an_empty_list(client):
+    assert client.get("/api/webhook-tools/executions").json() == {"executions": []}
+
+
+def test_webhook_executions_reads_back_logged_calls_newest_first(client):
+    from voice_orchestrator.tools import webhook_log
+
+    webhook_log.append(
+        webhook_log.Execution(
+            tool_name="network_status", call_id="c1", agent_id="tech_internet",
+            url="https://httpbin.org/anything", method="POST", ok=True, status_code=200, latency_ms=12.3,
+        )
+    )
+    webhook_log.append(
+        webhook_log.Execution(
+            tool_name="network_status", call_id="c2", agent_id="tech_internet",
+            url="https://httpbin.org/anything", method="POST", ok=False, status_code=500, latency_ms=8.1,
+            error="server error",
+        )
+    )
+    executions = client.get("/api/webhook-tools/executions").json()["executions"]
+    assert [e["call_id"] for e in executions] == ["c2", "c1"]
+    assert executions[0]["ok"] is False
+    assert executions[0]["error"] == "server error"
 
 
 def test_voice_token_with_credentials_mints_a_room_scoped_jwt(client, monkeypatch):

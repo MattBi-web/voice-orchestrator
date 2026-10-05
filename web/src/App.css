@@ -549,6 +549,37 @@
   margin-top: 0;
 }
 
+/* ---- Webhook tools panel (blocco 3) — shares the mcp-panel/dashboard__table
+   visual language on purpose (same kind of "config list + inline form"
+   editor), but kept as its own class so this panel's markup doesn't read as
+   literally being about MCP. ---- */
+
+.webhook-panel {
+  margin-top: 16px;
+}
+
+.webhook-panel__form {
+  margin-top: 16px;
+  padding: 16px;
+}
+
+.webhook-panel__executions {
+  margin-top: 24px;
+}
+
+.webhook-params-row {
+  display: grid;
+  grid-template-columns: 1fr 120px 1fr 110px auto;
+  gap: 6px;
+  align-items: center;
+}
+
+@media (max-width: 720px) {
+  .webhook-params-row {
+    grid-template-columns: 1fr;
+  }
+}
+
 
 /* ---- Verdict chips (status colours: icon carries the hue, label stays text) ---- */
 

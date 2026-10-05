@@ -14,6 +14,7 @@ dependencies = [
   "bm25s>=0.2",
   "anthropic>=0.40",
   "mcp>=1.0,<2.0",  # mcp 2.x renamed FastMCP -> MCPServer with a breaking API change; pinned to what demo_mcp_server.py is actually written against
+  "httpx>=0.27",  # blocco 3: tools/webhook_tool.py's HTTP client — a real, first-class dependency now, not just transitively pulled in by anthropic's own SDK
 ]
 
 [project.optional-dependencies]

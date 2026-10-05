@@ -110,6 +110,56 @@ class McpServerRow(Base):
         self.args_json = json.dumps(list(value))
 
 
+class WebhookToolRow(Base):
+    """The web-editable mirror of config/webhook_tools.yaml's `tools:` list —
+    same dual-source-of-truth pattern as McpServerRow/mcp_servers.yaml.
+    `name` is the primary key (and the suffix of the tool id
+    "webhook:<name>"), so renaming a tool means delete + recreate, same
+    convention as McpServerRow.
+
+    `headers_json` stores whatever string a person types, including a
+    "{{secret:NAME}}" placeholder — never a resolved secret value; see
+    tools/webhook_tool.py's module docstring for why that's safe to keep in
+    this (unencrypted, browser-editable) table."""
+
+    __tablename__ = "webhook_tools"
+
+    name: Mapped[str] = mapped_column(primary_key=True)
+    description: Mapped[str] = mapped_column(Text, default="")
+    url: Mapped[str] = mapped_column(default="")
+    method: Mapped[str] = mapped_column(default="POST")
+    headers_json: Mapped[str] = mapped_column(Text, default="{}")
+    params_json: Mapped[str] = mapped_column(Text, default="[]")
+    triggers_json: Mapped[str] = mapped_column(Text, default="[]")
+    timeout_seconds: Mapped[float] = mapped_column(default=5.0)
+
+    @property
+    def headers(self) -> dict[str, str]:
+        return json.loads(self.headers_json or "{}")
+
+    @headers.setter
+    def headers(self, value: dict[str, str]) -> None:
+        self.headers_json = json.dumps(dict(value))
+
+    @property
+    def params(self) -> list[dict]:
+        """Each item is `{"name", "source", "value", "type"}` — the
+        JSON-friendly shape of tools/webhook_tool.py's `WebhookParam`."""
+        return json.loads(self.params_json or "[]")
+
+    @params.setter
+    def params(self, value: list[dict]) -> None:
+        self.params_json = json.dumps(list(value))
+
+    @property
+    def triggers(self) -> list[str]:
+        return json.loads(self.triggers_json or "[]")
+
+    @triggers.setter
+    def triggers(self, value: list[str]) -> None:
+        self.triggers_json = json.dumps(list(value))
+
+
 class AppMetaRow(Base):
     """Tiny key/value table for one-off flags — today only "this seed already
     ran", so emptying a table on purpose (deleting every criterion, say)
