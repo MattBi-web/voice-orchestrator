@@ -288,6 +288,18 @@ access, and talk to Meridian Telecom's receptionist live, no phone number or SIP
 a first test. `start` instead of `dev` is the long-lived-worker mode for when real rooms/SIP
 trunking get wired in later.
 
+**Checking the voice layer without talking to it.** Two scripts exercise it end to end with real
+services (D12 in the roadmap). `scripts/d12_live_check.py` needs only `ELEVENLABS_API_KEY`: it runs
+the real `AgentSession` + `OrchestratorAgent` with text turns and an in-memory audio output, checks
+that a handoff switches to the new agent's voice and that `end_call` hangs up only after the
+farewell has played, and writes a WAV per reply. `scripts/d12_room_e2e.py` goes all the way through
+a LiveKit room: a scripted caller speaks synthesized Italian, Deepgram transcribes it, a local worker
+(`scripts/d12_local_worker.py`, dispatched by an explicit agent name so a deployed worker on the same
+project never picks the job up) answers, and the caller checks the reply's pitch changes after the
+handoff and that the agent closes the room after its goodbye. `tests/test_voice_agent.py` runs the
+first of these offline in the normal suite (fake TTS, no keys) whenever the `voice` extra is
+installed.
+
 ## Agent builder: a web UI on the same core
 
 Everything above — the router, the agent family, memory, tools, the voice layer — is reachable

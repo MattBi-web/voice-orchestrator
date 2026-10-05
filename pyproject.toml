@@ -25,7 +25,10 @@ gemini = ["google-generativeai>=0.8"]
 # Silero for VAD. Nothing else in this project imports any of these, so
 # the CLI/tests/text-core work with none of it installed.
 voice = [
-  "livekit-agents>=1.8",
+  # >=1.8.4: what voice/agent.py is written and verified against
+  # (Agent.update_options(tts=...), the reply-needs-an-LLM rule RouterLLM
+  # satisfies — see docs/ROADMAP.md D12).
+  "livekit-agents>=1.8.4,<2",
   "livekit-plugins-deepgram>=1.8",
   "livekit-plugins-elevenlabs>=1.8",
   "livekit-plugins-silero>=1.8",

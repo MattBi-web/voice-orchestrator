@@ -55,6 +55,11 @@ WEBAPI_DB_FILE = Path(os.environ.get("VOICE_ORCH_WEBAPI_DB_FILE", ROOT / "data" 
 # webapi's live voice test console (webapi/voice_token.py) can mint a room
 # token without needing the full voice/worker.py import chain.
 LIVEKIT_URL = os.environ.get("LIVEKIT_URL", "")
+# This project's docs and .env.example call it ELEVENLABS_API_KEY; the
+# livekit ElevenLabs plugin only looks for ELEVEN_API_KEY on its own. Accept
+# both, and pass it explicitly (voice/agent.py's elevenlabs_tts()) — D12
+# found the worker crashing on a fresh .env that only set the documented one.
+ELEVENLABS_API_KEY = os.environ.get("ELEVENLABS_API_KEY") or os.environ.get("ELEVEN_API_KEY", "")
 LIVEKIT_API_KEY = os.environ.get("LIVEKIT_API_KEY", "")
 LIVEKIT_API_SECRET = os.environ.get("LIVEKIT_API_SECRET", "")
 

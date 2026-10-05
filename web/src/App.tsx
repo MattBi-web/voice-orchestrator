@@ -1,18 +1,22 @@
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import type { Agent } from './types'
 import { api, ApiError } from './api'
 import { findAgent } from './tree'
 import { Tree } from './components/Tree'
-import { AgentGraph } from './components/AgentGraph'
 import { AgentForm } from './components/AgentForm'
 import { TestBox } from './components/TestBox'
-import { VoiceTestConsole } from './components/VoiceTestConsole'
-import { Dashboard } from './components/Dashboard'
 import { McpServersPanel } from './components/McpServersPanel'
 import { WebhookToolsPanel } from './components/WebhookToolsPanel'
-import { Conversations } from './components/Conversations'
-import { KnowledgeBase } from './components/KnowledgeBase'
 import './App.css'
+
+// D9: every tab except the agent builder's tree view loads on demand. The
+// two heavy dependencies sit behind these — livekit-client (voice console)
+// and recharts (dashboard) — so the first page load no longer pays for them.
+const AgentGraph = lazy(() => import('./components/AgentGraph').then((m) => ({ default: m.AgentGraph })))
+const VoiceTestConsole = lazy(() => import('./components/VoiceTestConsole').then((m) => ({ default: m.VoiceTestConsole })))
+const Dashboard = lazy(() => import('./components/Dashboard').then((m) => ({ default: m.Dashboard })))
+const Conversations = lazy(() => import('./components/Conversations').then((m) => ({ default: m.Conversations })))
+const KnowledgeBase = lazy(() => import('./components/KnowledgeBase').then((m) => ({ default: m.KnowledgeBase })))
 
 type Selection =
   | { kind: 'none' }
@@ -138,6 +142,7 @@ function App() {
 
       {error && <p className="error app__error">{error}</p>}
 
+      <Suspense fallback={<p className="app__hint">Loading…</p>}>
       {view === 'knowledge' ? (
         <KnowledgeBase root={root} />
       ) : view === 'voice' ? (
@@ -245,6 +250,7 @@ function App() {
           </main>
         </div>
       )}
+      </Suspense>
     </div>
   )
 }

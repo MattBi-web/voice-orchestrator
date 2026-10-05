@@ -34,10 +34,10 @@ import time
 from datetime import datetime, timezone
 
 from livekit.agents import Agent, AgentSession, JobContext, JobRequest, WorkerOptions, cli
-from livekit.plugins import deepgram, elevenlabs, silero
+from livekit.plugins import deepgram, silero
 
 from .. import call_log
-from .agent import OrchestratorAgent
+from .agent import OrchestratorAgent, elevenlabs_tts
 from .bridge import VoiceBridge, new_voice_bridge
 from .usage_guard import UsageGuard
 
@@ -90,13 +90,14 @@ async def entrypoint(ctx: JobContext) -> None:
         # eleven_turbo_v2_5 (this plugin's own default) trades some of that
         # latency back for quality, which isn't the right trade for a live
         # phone-style conversation.
-        tts=elevenlabs.TTS(model="eleven_flash_v2_5"),
-        # No llm= here: OrchestratorAgent.llm_node() never delegates to
-        # Agent.default.llm_node(), so there's no real chat model for
-        # AgentSession to ever actually call — see agent.py's docstring for
-        # why that's deliberate rather than an oversight.
+        tts=elevenlabs_tts(),
+        # No real chat model here: OrchestratorAgent.llm_node() replaces it
+        # (see agent.py's docstring). The agent itself carries a never-called
+        # RouterLLM placeholder, because livekit-agents skips replying to a
+        # user turn when no LLM is set at all — D12.
     )
-    await session.start(agent=OrchestratorAgent(bridge), room=ctx.room)
+    agent = OrchestratorAgent(bridge)
+    await session.start(agent=agent, room=ctx.room)
     # Blocco 2's first_message, root-agent only: a sub-agent reached via
     # handoff responds to whatever triggered the handoff instead, so only
     # the receptionist needs to speak before hearing anything. session.say()
@@ -106,11 +107,12 @@ async def entrypoint(ctx: JobContext) -> None:
     # caller's first utterance, same as before this field existed.
     if bridge.root.first_message:
         # Same lazy-init handle_turn() does on the first real turn
-        # (orchestrator.py's _ensure_started) — done here too so
-        # OrchestratorAgent.tts_node() already has a current_agent_id to
-        # resolve a voice override from, in case the root itself has one.
+        # (orchestrator.py's _ensure_started).
         if not bridge.session.agent_path:
             bridge.session.agent_path = [bridge.root.id]
+        # session.say() bypasses llm_node, where the voice is normally
+        # chosen — so pick the root's voice here, before the greeting.
+        agent.apply_voice(bridge.root)
         await session.say(bridge.root.first_message)
 
 
