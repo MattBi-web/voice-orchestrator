@@ -7,6 +7,8 @@ import { AgentForm } from './components/AgentForm'
 import { TestBox } from './components/TestBox'
 import { McpServersPanel } from './components/McpServersPanel'
 import { WebhookToolsPanel } from './components/WebhookToolsPanel'
+import { AuthBar } from './components/AuthBar'
+import { AuthContext, type AuthState } from './auth'
 import './App.css'
 
 // D9: every tab except the agent builder's tree view loads on demand. The
@@ -37,6 +39,14 @@ function App() {
   const [error, setError] = useState<string | null>(null)
   const [exporting, setExporting] = useState(false)
   const [exportResult, setExportResult] = useState<string | null>(null)
+  const [auth, setAuth] = useState<AuthState>({ authRequired: false, owner: true })
+
+  useEffect(() => {
+    api
+      .me()
+      .then((r) => setAuth({ authRequired: r.auth_required, owner: r.owner }))
+      .catch(() => undefined) // an older backend without /api/auth: stay in the open local mode
+  }, [])
 
   const reload = async () => {
     try {
@@ -94,12 +104,16 @@ function App() {
     selection.kind === 'create' ? findAgent(root, selection.parentId) : undefined
 
   return (
+    <AuthContext.Provider value={auth}>
     <div className="app">
       <header className="app__header">
-        <h1>voice-orchestrator — agent builder</h1>
+        <div className="app__titlebar">
+          <h1>voice-orchestrator — agent builder</h1>
+          <AuthBar auth={auth} onChange={setAuth} />
+        </div>
         <p className="app__subtitle">
-          Editing the SQLite-backed agent family (seeded once from{' '}
-          <code>config/agents.yaml</code>, then independent of it — "Esporta" writes it back on demand).
+          Una famiglia di voice agent con router a 3 livelli: configura gli agenti, provali in testo e in voce, guarda
+          conversazioni e analisi.
         </p>
         <nav className="app__tabs">
           <button
@@ -140,6 +154,12 @@ function App() {
         </nav>
       </header>
 
+      {auth.authRequired && !auth.owner && (
+        <p className="app__readonly">
+          Demo in sola lettura: puoi esplorare agenti, knowledge base, conversazioni e dashboard, provare il box "Try it"
+          e chiamare l'agente dalla tab "Test live (voce)". Le modifiche sono riservate al proprietario.
+        </p>
+      )}
       {error && <p className="error app__error">{error}</p>}
 
       <Suspense fallback={<p className="app__hint">Loading…</p>}>
@@ -177,12 +197,14 @@ function App() {
                 Grafo
               </button>
             </div>
-            <div className="app__export">
-              <button type="button" className="btn-link" onClick={handleExport} disabled={exporting}>
-                {exporting ? 'Esporto…' : '↓ Esporta verso agents.yaml'}
-              </button>
-              {exportResult && <p className="app__export-result">{exportResult}</p>}
-            </div>
+            {auth.owner && (
+              <div className="app__export">
+                <button type="button" className="btn-link" onClick={handleExport} disabled={exporting}>
+                  {exporting ? 'Esporto…' : '↓ Esporta verso agents.yaml'}
+                </button>
+                {exportResult && <p className="app__export-result">{exportResult}</p>}
+              </div>
+            )}
           </div>
 
           {builderSubview === 'graph' && (
@@ -205,10 +227,12 @@ function App() {
                 onSelect={(id) => setSelection({ kind: 'edit', agentId: id })}
                 onAddChild={(parentId) => setSelection({ kind: 'create', parentId })}
               />
-              <p className="app__export-hint">
-                "Esporta" scrive la famiglia attuale su agents.yaml — così la CLI e il test vocale la vedono. Non
-                automatico — va rifatto a ogni cambio che vuoi propagare.
-              </p>
+              {auth.owner && (
+                <p className="app__export-hint">
+                  "Esporta" scrive la famiglia attuale su agents.yaml, per la CLI. Il worker vocale online legge
+                  direttamente il database: lì ogni salvataggio è già attivo dalla chiamata successiva.
+                </p>
+              )}
             </aside>
           )}
 
@@ -252,6 +276,7 @@ function App() {
       )}
       </Suspense>
     </div>
+    </AuthContext.Provider>
   )
 }
 

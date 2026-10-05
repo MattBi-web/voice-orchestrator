@@ -54,6 +54,14 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  // ---- blocco 6: owner login ----
+  me: () => request<{ auth_required: boolean; owner: boolean }>('/api/auth/me'),
+  login: (password: string) =>
+    request<{ auth_required: boolean; owner: boolean }>('/api/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ password }),
+    }),
+  logout: () => request<{ auth_required: boolean; owner: boolean }>('/api/auth/logout', { method: 'POST' }),
   // ---- blocco 5: knowledge base ----
   listKnowledge: () => request<{ documents: KnowledgeDoc[]; max_chunk_chars: number }>('/api/knowledge'),
   getKnowledge: (name: string) => request<KnowledgeDocDetail>(`/api/knowledge/${encodeURIComponent(name)}`),

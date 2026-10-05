@@ -7,6 +7,7 @@ import { KnowledgePicker } from './KnowledgePicker'
 import { LlmOverridePicker } from './LlmOverridePicker'
 import { ToolsEditor } from './ToolsEditor'
 import { VoicePicker } from './VoicePicker'
+import { useOwner } from '../auth'
 
 interface FormState {
   id: string
@@ -78,6 +79,7 @@ interface Props {
 }
 
 export function AgentForm({ mode, initial, parentId, parentName, availableTools, onCancel, onSaved, onDeleted }: Props) {
+  const owner = useOwner()
   const [state, setState] = useState<FormState>(() => (initial ? fromAgent(initial) : blank()))
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
@@ -153,7 +155,14 @@ export function AgentForm({ mode, initial, parentId, parentName, availableTools,
 
   return (
     <form className="agent-form" onSubmit={handleSubmit}>
-      <h2>{mode === 'create' ? `New agent under "${parentName ?? parentId}"` : `Edit "${initial?.id}"`}</h2>
+      <fieldset className="ro-fieldset" disabled={!owner}>
+      <h2>
+        {mode === 'create'
+          ? `New agent under "${parentName ?? parentId}"`
+          : owner
+            ? `Edit "${initial?.id}"`
+            : `Agente "${initial?.id}"`}
+      </h2>
       {error && <p className="error">{error}</p>}
 
       {mode === 'create' && (
@@ -233,14 +242,17 @@ export function AgentForm({ mode, initial, parentId, parentName, availableTools,
 
       <KnowledgePicker values={state.knowledge} onChange={(knowledge) => update({ knowledge })} />
 
+      </fieldset>
       <div className="form-actions">
-        <button type="submit" disabled={saving}>
-          {saving ? 'Saving…' : 'Save'}
-        </button>
+        {owner && (
+          <button type="submit" disabled={saving}>
+            {saving ? 'Saving…' : 'Save'}
+          </button>
+        )}
         <button type="button" className="btn-secondary" onClick={onCancel}>
-          Cancel
+          {owner ? 'Cancel' : 'Close'}
         </button>
-        {mode === 'edit' && (
+        {owner && mode === 'edit' && (
           <button type="button" className="btn-danger" onClick={handleDelete} disabled={deleting}>
             {deleting ? 'Deleting…' : 'Delete'}
           </button>

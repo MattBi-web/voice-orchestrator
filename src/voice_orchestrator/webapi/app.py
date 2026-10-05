@@ -17,8 +17,9 @@ import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 
-from fastapi import Depends, FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import Depends, FastAPI, HTTPException, Request, Response
+from fastapi.responses import FileResponse, JSONResponse
+from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -30,7 +31,7 @@ from ..orchestrator import handle_turn
 from ..state import CallSession
 from ..tools import REGISTRY
 from ..tools import webhook_log as webhook_log_module
-from . import analysis_repository, knowledge_repository, mcp_repository, mcp_sync, repository, seed, voice_token, webhook_repository, webhook_sync
+from . import analysis_repository, auth, knowledge_repository, mcp_repository, mcp_sync, repository, seed, voice_token, webhook_repository, webhook_sync
 from .db import get_session
 from .mcp_repository import McpServerInput
 from .models import AgentRow
@@ -100,6 +101,51 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def owner_only_writes(request: Request, call_next):
+    """Blocco 6: with VOICE_ORCH_OWNER_PASSWORD set, every API request that
+    could change something needs the owner's session (see auth.py for the
+    few visitor exceptions). One check here instead of one per route, so a
+    route added later is protected by default rather than by remembering."""
+    path = request.url.path
+    if path.startswith("/api/") and not auth.visitor_may(request.method, path) and not auth.is_owner(request):
+        return JSONResponse({"detail": "Sola lettura: accedi come proprietario per modificare."}, status_code=401)
+    return await call_next(request)
+
+
+class LoginIn(BaseModel):
+    password: str
+
+
+@app.get("/api/auth/me")
+def auth_me(request: Request) -> dict:
+    return {"auth_required": auth.auth_required(), "owner": auth.is_owner(request)}
+
+
+@app.post("/api/auth/login")
+def auth_login(body: LoginIn, request: Request, response: Response) -> dict:
+    if not auth.auth_required():
+        return {"auth_required": False, "owner": True}
+    if not auth.check_password(body.password):
+        raise HTTPException(401, "Password errata")
+    response.set_cookie(
+        auth.COOKIE_NAME,
+        auth.make_token(),
+        max_age=auth.SESSION_SECONDS,
+        httponly=True,
+        samesite="lax",
+        # Behind Render's TLS proxy the app itself sees plain http.
+        secure=request.headers.get("x-forwarded-proto", request.url.scheme) == "https",
+    )
+    return {"auth_required": True, "owner": True}
+
+
+@app.post("/api/auth/logout")
+def auth_logout(response: Response) -> dict:
+    response.delete_cookie(auth.COOKIE_NAME)
+    return {"auth_required": auth.auth_required(), "owner": not auth.auth_required()}
 
 
 @app.get("/api/health")
@@ -485,7 +531,7 @@ def llm_status() -> dict:
 
 
 @app.post("/api/test/route", response_model=TestRouteResponse)
-def test_route(body: TestRouteRequest, session: Session = Depends(get_session)) -> TestRouteResponse:
+def test_route(body: TestRouteRequest, request: Request, session: Session = Depends(get_session)) -> TestRouteResponse:
     """Builds the DB-backed family into a real AgentSpec tree and runs the
     utterance through the *actual* orchestrator. By default with
     FakeProvider — the same zero-API-key path `voice-orchestrator chat`/
@@ -505,7 +551,9 @@ def test_route(body: TestRouteRequest, session: Session = Depends(get_session)) 
     call_session.agent_path = [a.id for a in _path_to(root, start.id)]
 
     started_at = datetime.now(timezone.utc)
-    provider = get_provider() if body.use_configured_provider else FakeProvider()
+    # Visitors get the try-it box too, but never on the paid provider.
+    use_real = body.use_configured_provider and auth.is_owner(request)
+    provider = get_provider() if use_real else FakeProvider()
     try:
         result = handle_turn(call_session, root, body.utterance, provider)
     except Exception as exc:

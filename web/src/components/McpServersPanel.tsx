@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { McpServer } from '../types'
 import { api, ApiError } from '../api'
 import { ListEditor } from './ListEditor'
+import { useOwner } from '../auth'
 
 interface FormState {
   name: string
@@ -30,6 +31,7 @@ function McpServerForm({
   onSaved: () => void
   onDeleted: () => void
 }) {
+  const owner = useOwner()
   const [state, setState] = useState<FormState>(() => (initial ? fromServer(initial) : blank()))
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
@@ -77,6 +79,7 @@ function McpServerForm({
 
   return (
     <form className="agent-form mcp-panel__form" onSubmit={handleSubmit}>
+      <fieldset className="ro-fieldset" disabled={!owner}>
       <h3>{mode === 'create' ? 'Nuovo server MCP' : `Modifica "${initial?.name}"`}</h3>
       {error && <p className="error">{error}</p>}
 
@@ -108,14 +111,17 @@ function McpServerForm({
         onChange={(args) => update({ args })}
       />
 
+      </fieldset>
       <div className="form-actions">
-        <button type="submit" disabled={saving}>
-          {saving ? 'Salvataggio…' : 'Salva'}
-        </button>
+        {owner && (
+          <button type="submit" disabled={saving}>
+            {saving ? 'Salvataggio…' : 'Salva'}
+          </button>
+        )}
         <button type="button" className="btn-secondary" onClick={onCancel}>
-          Annulla
+          {owner ? 'Annulla' : 'Chiudi'}
         </button>
-        {mode === 'edit' && (
+        {owner && mode === 'edit' && (
           <button type="button" className="btn-danger" onClick={handleDelete} disabled={deleting}>
             {deleting ? 'Elimino…' : 'Elimina'}
           </button>
@@ -135,6 +141,7 @@ interface Props {
 }
 
 export function McpServersPanel({ onChanged }: Props) {
+  const owner = useOwner()
   const [servers, setServers] = useState<McpServer[]>([])
   const [selection, setSelection] = useState<Selection>({ kind: 'none' })
   const [error, setError] = useState<string | null>(null)
@@ -167,7 +174,7 @@ export function McpServersPanel({ onChanged }: Props) {
     <section className="mcp-panel">
       <div className="mcp-panel__header">
         <h2>Server MCP</h2>
-        {selection.kind === 'none' && (
+        {owner && selection.kind === 'none' && (
           <button type="button" className="btn-link" onClick={() => setSelection({ kind: 'create' })}>
             + nuovo server
           </button>
@@ -176,9 +183,8 @@ export function McpServersPanel({ onChanged }: Props) {
       <p className="mcp-panel__hint">
         Ogni tool <code>mcp:&lt;nome&gt;</code> che vedi nell'editor dei tool qui sopra viene da uno di questi
         server, lanciato come processo locale al momento in cui serve. <strong>Nota di sicurezza:</strong> comando
-        e argomenti che scrivi qui vengono eseguiti per davvero sulla macchina su cui gira questo backend — va
-        bene in locale (vedi il modello di minaccia già documentato nel README per questa API), ma questa pagina
-        non va esposta su internet senza prima aggiungere un'autenticazione vera.
+        e argomenti che scrivi qui vengono eseguiti per davvero sulle macchine su cui girano il backend e il worker
+        vocale. Per questo, quando è impostata una password, solo il proprietario può aggiungerli o modificarli.
       </p>
 
       {error && <p className="error">{error}</p>}

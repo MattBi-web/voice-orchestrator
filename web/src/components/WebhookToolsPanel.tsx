@@ -4,6 +4,7 @@ import { api, ApiError } from '../api'
 import { KeyValueEditor } from './KeyValueEditor'
 import { ListEditor } from './ListEditor'
 import { WebhookParamsEditor } from './WebhookParamsEditor'
+import { useOwner } from '../auth'
 
 interface FormState {
   name: string
@@ -48,6 +49,7 @@ function WebhookToolForm({
   onSaved: () => void
   onDeleted: () => void
 }) {
+  const owner = useOwner()
   const [state, setState] = useState<FormState>(() => (initial ? fromTool(initial) : blank()))
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
@@ -102,6 +104,7 @@ function WebhookToolForm({
 
   return (
     <form className="agent-form webhook-panel__form" onSubmit={handleSubmit}>
+      <fieldset className="ro-fieldset" disabled={!owner}>
       <h3>{mode === 'create' ? 'Nuovo tool webhook' : `Modifica "${initial?.name}"`}</h3>
       {error && <p className="error">{error}</p>}
 
@@ -179,14 +182,17 @@ function WebhookToolForm({
         onChange={(triggers) => update({ triggers })}
       />
 
+      </fieldset>
       <div className="form-actions">
-        <button type="submit" disabled={saving}>
-          {saving ? 'Salvataggio…' : 'Salva'}
-        </button>
+        {owner && (
+          <button type="submit" disabled={saving}>
+            {saving ? 'Salvataggio…' : 'Salva'}
+          </button>
+        )}
         <button type="button" className="btn-secondary" onClick={onCancel}>
-          Annulla
+          {owner ? 'Annulla' : 'Chiudi'}
         </button>
-        {mode === 'edit' && (
+        {owner && mode === 'edit' && (
           <button type="button" className="btn-danger" onClick={handleDelete} disabled={deleting}>
             {deleting ? 'Elimino…' : 'Elimina'}
           </button>
@@ -284,6 +290,7 @@ interface Props {
 }
 
 export function WebhookToolsPanel({ onChanged }: Props) {
+  const owner = useOwner()
   const [tools, setTools] = useState<WebhookTool[]>([])
   const [selection, setSelection] = useState<Selection>({ kind: 'none' })
   const [error, setError] = useState<string | null>(null)
@@ -316,7 +323,7 @@ export function WebhookToolsPanel({ onChanged }: Props) {
     <section className="mcp-panel webhook-panel">
       <div className="mcp-panel__header">
         <h2>Tool webhook (HTTP)</h2>
-        {selection.kind === 'none' && (
+        {owner && selection.kind === 'none' && (
           <button type="button" className="btn-link" onClick={() => setSelection({ kind: 'create' })}>
             + nuovo tool
           </button>

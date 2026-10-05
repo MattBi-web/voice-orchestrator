@@ -14,10 +14,10 @@ built-in tools (`transfer_to_human`, `knowledge_lookup`,
 SECURITY NOTE: an MCP server's `command`/`args` runs as a real local
 subprocess (see tools/mcp_tool.py's module docstring on load_mcp_tools()).
 Letting a web client create one is a genuine "run an arbitrary command on
-this machine" capability — acceptable only under app.py's already-documented
-local-dev-only threat model (CORS locked to the Vite dev server's own
-origin, no auth). Don't expose this API past localhost without adding real
-authentication first.
+this machine" capability. Locally (no VOICE_ORCH_OWNER_PASSWORD) that's
+the developer's own machine; hosted (blocco 6), app.py's owner-only-writes
+middleware means only the owner can create or edit one — which then runs
+on the web service *and* on the voice worker.
 """
 from __future__ import annotations
 

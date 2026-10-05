@@ -1,4 +1,5 @@
 import type { Agent } from '../types'
+import { useOwner } from '../auth'
 
 interface Props {
   root: Agent | null
@@ -17,6 +18,7 @@ function TreeNode({
   node: Agent
   depth: number
 } & Pick<Props, 'selectedId' | 'onSelect' | 'onAddChild'>) {
+  const owner = useOwner()
   return (
     <div>
       <div
@@ -27,13 +29,13 @@ function TreeNode({
           {node.name || node.id}
           {node.eligibility && <span className="tree-row__badge" title={node.eligibility}>gated</span>}
         </button>
-        <button
+        {owner && (<button
           className="tree-row__add"
           title={`Add a child of ${node.id}`}
           onClick={() => onAddChild(node.id)}
         >
           +
-        </button>
+        </button>)}
       </div>
       {node.children.map((child) => (
         <TreeNode

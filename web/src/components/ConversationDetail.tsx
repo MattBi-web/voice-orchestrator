@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { CallDetail } from '../types'
 import { api, ApiError } from '../api'
 import { VerdictChip } from './VerdictChip'
+import { useOwner } from '../auth'
 
 const LEVEL_LABELS: Record<string, string> = {
   gate_only: 'solo gate',
@@ -16,6 +17,7 @@ function formatValue(value: string | number | boolean | null): string {
 }
 
 export function ConversationDetail({ callId, onAnalyzed }: { callId: string; onAnalyzed: () => void }) {
+  const owner = useOwner()
   const [call, setCall] = useState<CallDetail | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [analyzing, setAnalyzing] = useState(false)
@@ -107,7 +109,13 @@ export function ConversationDetail({ callId, onAnalyzed }: { callId: string; onA
       <section className="convo-detail__section">
         <div className="convo-detail__analysis-head">
           <h3>Analisi</h3>
-          <button type="button" className="btn-secondary" onClick={runAnalysis} disabled={analyzing}>
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={runAnalysis}
+            disabled={analyzing || !owner}
+            title={owner ? undefined : 'Accedi come proprietario per analizzare'}
+          >
             {analyzing ? 'Analizzo…' : analysis ? 'Rianalizza' : 'Analizza'}
           </button>
         </div>

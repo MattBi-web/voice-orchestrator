@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { Agent, KnowledgeDoc, KnowledgeDocDetail, KnowledgeHit } from '../types'
 import { api, ApiError } from '../api'
 import { flatten } from '../tree'
+import { useOwner } from '../auth'
 
 /** Blocco 5 — the knowledge base tab. Documents are the files in
  * data/knowledge/ (the same ones the CLI and the voice worker read); this tab
@@ -147,6 +148,7 @@ function DocumentView({
   highlight: number | null
   onDeleted: () => void
 }) {
+  const owner = useOwner()
   const [doc, setDoc] = useState<KnowledgeDocDetail | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [showRaw, setShowRaw] = useState(false)
@@ -184,9 +186,11 @@ function DocumentView({
         <h3>
           <code>{doc.name}</code>
         </h3>
-        <button type="button" className="btn-danger" onClick={remove} disabled={doc.used_by.length > 0}>
-          Elimina
-        </button>
+        {owner && (
+          <button type="button" className="btn-danger" onClick={remove} disabled={doc.used_by.length > 0}>
+            Elimina
+          </button>
+        )}
       </div>
       <dl className="kb-meta">
         <dt>Origine</dt>
@@ -364,6 +368,7 @@ function SearchPreview({
 }
 
 export function KnowledgeBase({ root }: { root: Agent | null }) {
+  const owner = useOwner()
   const [docs, setDocs] = useState<KnowledgeDoc[]>([])
   const [pane, setPane] = useState<Pane>({ kind: 'none' })
   const [highlight, setHighlight] = useState<number | null>(null)
@@ -397,9 +402,11 @@ export function KnowledgeBase({ root }: { root: Agent | null }) {
     <div className="kb">
       <div className="dashboard__toolbar">
         <h2>Knowledge base</h2>
-        <button type="button" onClick={() => setPane({ kind: 'add' })}>
-          + Nuovo documento
-        </button>
+        {owner && (
+          <button type="button" onClick={() => setPane({ kind: 'add' })}>
+            + Nuovo documento
+          </button>
+        )}
       </div>
       {error && <p className="error">{error}</p>}
       {loading ? (

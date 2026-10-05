@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Agent } from '../types'
 import { api, ApiError } from '../api'
+import { useOwner } from '../auth'
 
 interface Props {
   root: Agent | null
@@ -89,6 +90,7 @@ const HUMAN_NODE = '__human__'
 const END_CALL_NODE = '__end_call__'
 
 export function AgentGraph({ root, selectedId, onSelect, onAddChild, onChanged }: Props) {
+  const owner = useOwner()
   const nodes = useMemo(() => (root ? flattenWithParent(root) : []), [root])
   const auto = useMemo(() => (root ? autoLayout(root) : new Map<string, Pos>()), [root])
 
@@ -145,6 +147,7 @@ export function AgentGraph({ root, selectedId, onSelect, onAddChild, onChanged }
   }
 
   const onPointerDown = (e: React.PointerEvent, id: string) => {
+    if (!owner) return
     const pos = positions.get(id)
     if (!pos) return
     const svg = (e.target as SVGElement).ownerSVGElement
@@ -269,7 +272,7 @@ export function AgentGraph({ root, selectedId, onSelect, onAddChild, onChanged }
           Trascina i nodi — la posizione si salva da sola. Trascina un nodo sopra un altro per
           cambiargli genitore.
         </span>
-        {selectedId && (
+        {owner && selectedId && (
           <button type="button" className="btn-link" onClick={() => onAddChild(selectedId)}>
             + figlio di {selectedId}
           </button>
@@ -397,12 +400,14 @@ export function AgentGraph({ root, selectedId, onSelect, onAddChild, onChanged }
                 <text x={10} y={40} className="agent-graph__node-sub">
                   {truncate(node.parent_id === null ? 'root' : node.id, 22)}
                 </text>
-                <g transform={`translate(${NODE_W - 24}, 6)`} onClick={(e) => handleDuplicate(node, e)}>
-                  <rect width={18} height={18} rx={4} className="agent-graph__dup-btn" />
-                  <text x={9} y={13} textAnchor="middle" className="agent-graph__dup-icon">
-                    ⧉
-                  </text>
-                </g>
+                {owner && (
+                  <g transform={`translate(${NODE_W - 24}, 6)`} onClick={(e) => handleDuplicate(node, e)}>
+                    <rect width={18} height={18} rx={4} className="agent-graph__dup-btn" />
+                    <text x={9} y={13} textAnchor="middle" className="agent-graph__dup-icon">
+                      ⧉
+                    </text>
+                  </g>
+                )}
               </g>
             )
           })}

@@ -518,6 +518,24 @@ VOICE_ORCH_PROVIDER=anthropic   # or openai, gemini, fake (default)
 ANTHROPIC_API_KEY=...           # matching key for whichever provider
 ```
 
+## Hosting it (Render): web service + voice worker + Postgres
+
+`render.yaml` is a Render Blueprint for the whole platform: the web service (API and the built
+frontend, `deploy/web.Dockerfile`), the LiveKit voice worker (`deploy/worker.Dockerfile`) and a
+managed Postgres they share (about $38–40/month at October 2026 list prices). Setting
+`VOICE_ORCH_DATABASE_URL` switches on *shared mode*: the agent family, tools, knowledge documents,
+calls and the daily voice-minutes tally all live in that database, so what the owner saves in the
+builder answers the very next call, with no export and no restart. With
+`VOICE_ORCH_OWNER_PASSWORD` set, visitors get a read-only builder plus the demo features (the voice
+test within the daily cap, the knowledge preview, and the try-it box pinned to the free
+`FakeProvider`); every other write needs the owner's login. Without either variable, everything
+runs locally exactly as described below.
+
+To deploy: Render dashboard → New → Blueprint → this repository, then fill in the secrets it asks
+for (owner password, LiveKit, Deepgram, ElevenLabs). If an older standalone worker is still
+running on the same LiveKit project, suspend it first: with automatic dispatch, LiveKit would
+split calls between the two.
+
 ## Setup
 
 ```

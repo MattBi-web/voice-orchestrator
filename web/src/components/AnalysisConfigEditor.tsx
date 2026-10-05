@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { AnalysisConfig, Criterion, CriterionKind, DataItemType } from '../types'
 import { api, ApiError } from '../api'
+import { useOwner } from '../auth'
 
 const TYPES: DataItemType[] = ['string', 'boolean', 'integer', 'number']
 
@@ -25,6 +26,7 @@ const splitIds = (raw: string) =>
  * as one unit (PUT /api/analysis/config). Saving doesn't touch analyses
  * already run — re-analyzing a call is an explicit action. */
 export function AnalysisConfigEditor() {
+  const owner = useOwner()
   const [cfg, setCfg] = useState<AnalysisConfig | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
@@ -63,6 +65,7 @@ export function AnalysisConfigEditor() {
 
   return (
     <form className="analysis-config" onSubmit={save}>
+      <fieldset className="ro-fieldset" disabled={!owner}>
       <p className="mcp-panel__hint">
         Valgono per tutta la famiglia di agenti, non per un singolo agente: una chiamata passa da più agenti ed è la
         chiamata intera che si valuta. Modificarli non cambia le analisi già fatte: usa "Rianalizza" su una chiamata
@@ -209,8 +212,9 @@ export function AnalysisConfigEditor() {
         + aggiungi campo
       </button>
 
+      </fieldset>
       <div className="form-actions">
-        <button type="submit" disabled={saving}>
+        <button type="submit" disabled={saving || !owner}>
           {saving ? 'Salvataggio…' : 'Salva'}
         </button>
         {saved && <span className="analysis-config__saved">Salvato.</span>}

@@ -3,7 +3,7 @@
 Documento di lavoro: tiene traccia di dove siamo, dove vogliamo arrivare e perché.
 Si aggiorna a ogni feature, nello stesso commit del codice.
 
-Ultimo aggiornamento: 2026-10-05 (piano blocco 6)
+Ultimo aggiornamento: 2026-10-05 (blocco 6 pronto per il deploy)
 
 ---
 
@@ -185,7 +185,7 @@ CAI e alla tesi sulle sales force) e senza trascrizioni salvate nessuna analisi 
 - [x] Form agente: i file di knowledge sono checkbox sui documenti esistenti, non più
       nomi a testo libero (un refuso falliva in silenzio).
 
-### Blocco 6 — Piattaforma online (Render, due servizi + Postgres)  🚧 in corso
+### Blocco 6 — Piattaforma online (Render, due servizi + Postgres)  ✅ pronto, deploy da fare
 
 Perché: oggi il progetto si prova solo in locale. Su Render gira solo il worker vocale, un
 background worker senza URL, quindi non lo si può nemmeno chiamare senza un client esterno come
@@ -239,15 +239,35 @@ unico con disco condiviso.
       tra domini. Una route catch-all registrata per ultima: le `/api/*` hanno sempre la precedenza
       (un'API sconosciuta resta un 404, non la pagina dell'app); gli asset con hash sono in cache
       `immutable`, `index.html` in `no-cache`; i path fuori da `dist` vengono rifiutati.
-- [ ] **Accesso.** Login owner con password da variabile d'ambiente (sessione via cookie firmato). I
+- [x] **Accesso.** Login owner con password da variabile d'ambiente (sessione via cookie firmato). I
       visitatori senza login vedono tutto in sola lettura: builder, knowledge base, conversazioni,
       dashboard. Il test vocale è aperto a tutti ma dentro il tetto giornaliero di minuti già
       esistente; da valutare un limite per visitatore, per esempio per IP. Ogni endpoint che scrive
       richiede la sessione owner, con test dedicati: un visitatore che prova a scrivere riceve 401.
-- [ ] **`render.yaml` (Blueprint)** che crea web, worker e database in un passo, con le variabili
+      **Fatto così:** `webapi/auth.py`: `VOICE_ORCH_OWNER_PASSWORD` non impostata significa niente
+      login (locale e test, come prima). Il cookie è firmato HMAC-SHA256 con scadenza a 7 giorni e
+      chiave derivata dalla password, quindi cambiarla chiude tutte le sessioni. Un middleware unico
+      blocca ogni scrittura su `/api/*` per chi non è owner, così una route futura nasce già
+      protetta; le uniche eccezioni sono login, test vocale, anteprima della knowledge e "try it",
+      che per i visitatori resta forzato su FakeProvider (zero token spesi). Nel frontend: login
+      nell'header, banner "sola lettura", form disattivati e pulsanti di modifica nascosti. Il limite
+      per visitatore (per IP) non è fatto: resta il tetto giornaliero globale.
+- [x] **`render.yaml` (Blueprint)** che crea web, worker e database in un passo, con le variabili
       d'ambiente dichiarate: chiavi LiveKit/Deepgram/ElevenLabs, password owner, `DATABASE_URL`
-      collegato al DB. **Il deploy lo lancia Matteo**: chiedere conferma prima.
-- [ ] **Verifica online.** Dopo il deploy: login, una modifica nel builder, una chiamata dal tab
+      collegato al DB. **Il deploy lo lancia Matteo**: chiedere conferma prima. **Fatto così:**
+      entrambi i servizi con `runtime: docker` (`deploy/web.Dockerfile`, multi-stage Node →
+      Python; `deploy/worker.Dockerfile`, con i modelli scaricati nell'immagine), perché le docs
+      di Render non garantiscono Node nel runtime Python nativo. Piani con i nomi attuali del
+      Blueprint (`0.5c-512mb`, `1c-2g`, Postgres `0.1c-256mb`), regione Frankfurt (vicina alla
+      regione LiveKit "Germany 2"). Le chiavi LiveKit stanno in un env group condiviso.
+      Installazione editable nelle immagini, perché `config.py` risolve `config/` e `data/`
+      rispetto ai sorgenti. Entrambe le immagini sono state costruite e avviate localmente con
+      Docker contro Postgres: il web ha fatto il seed di agenti e knowledge, 401 al visitatore,
+      201 all'owner; il worker ha letto dal DB l'agente appena creato dal web.
+- [ ] **Verifica online** (da fare dopo il deploy; **in locale è già passata** con una chiamata
+      LiveKit vera, web e worker come processi separati sullo stesso DB: modifica della voce di
+      billing da owner, 401 per il visitatore, chiamata successiva con la voce nuova (200 → 144 Hz),
+      chiamata visibile in `/api/calls`). Dopo il deploy: login, una modifica nel builder, una chiamata dal tab
       "Test live (voce)" che usa la modifica, la chiamata visibile in Conversazioni.
       `scripts/d12_room_e2e.py` contro il worker deployato richiede la sua dispatch: il worker di
       produzione usa la dispatch automatica, quello locale `agent_name`.
@@ -307,6 +327,8 @@ infrastruttura che nessuna rifinitura della UI chiude.
 | 2026-10 | D12: verifica vocale con dispatch esplicito (`agent_name`) verso un worker locale | il worker deployato su Render è registrato sullo stesso progetto LiveKit: con la dispatch automatica una stanza di test poteva finire a lui, con il codice vecchio |
 | 2026-10 | Blocco 6: due servizi Render (web + worker) con Postgres gestito, non un servizio unico con disco condiviso (~$38–40/mese contro ~$25) | un servizio unico costa come oggi ma lega worker e builder allo stesso disco, una scorciatoia da smontare appena servono più worker o più utenti (un servizio Render con disco non scala oltre un'istanza). Il lavoro in più (dati condivisi nel DB, worker che legge dal DB) è quello che una piattaforma richiede comunque |
 | 2026-10 | Blocco 6: accesso "owner con password + visitatori in sola lettura", non multi-utente | per un portfolio conta che il ciclo base funzioni dal vivo e sia linkabile; account e workspace sono il salto multi-tenant, rimandato |
+| 2026-10 | Blocco 6: Docker per entrambi i servizi Render invece del runtime Python nativo | il web va compilato anche con Node, che le docs non garantiscono nel runtime Python; con Docker l'immagine si costruisce e si prova identica in locale |
+| 2026-10 | Blocco 6: un middleware unico "solo owner scrive" invece di un controllo per route | una route aggiunta in futuro nasce protetta; le eccezioni per i visitatori sono un elenco esplicito in `auth.py`, testato |
 | 2026-10 | D9: code-splitting per tab con `React.lazy`, non `manualChunks` | le due dipendenze pesanti servono ognuna a una sola tab: caricarle all'apertura di quella tab toglie il costo dal primo caricamento, mentre dividere i vendor in chunk separati lo avrebbe solo spezzato |
 | 2026-10 | Voce per agente via `tts_node()` override (scambio di `self._tts`), poi sostituito in D12 da `update_options(tts=...)`; non via il multi-agent handoff pattern di LiveKit (un'istanza `Agent` per sotto-agente) | l'architettura usa già un `OrchestratorAgent` unico per tutta la chiamata (il router interno gestisce gli handoff, non LiveKit) — cambiarlo per la sola voce avrebbe significato riscrivere il modello della chiamata per un singolo campo |
 | 2026-10 | Il grafo (blocco 4) mostra solo archi genitore→figlio (sempre veri) + archi tratteggiati verso nodi virtuali per i tool di uscita (`transfer_to_human`/`end_call`), non un grafo di stato libero come il `workflow` di ElevenLabs | `routing/router.py` guarda solo in basso nell'albero — un grafo più "ricco" mentirebbe su come funziona davvero il routing |
@@ -343,4 +365,5 @@ infrastruttura che nessuna rifinitura della UI chiude.
 | `8a429cb` | D9 (tab caricate su richiesta: chunk iniziale 1.172 → 261 kB) + D12 (voce per agente e chiusura dopo il saluto verificate su una chiamata LiveKit reale; corretti due bug che rompevano ogni chiamata vera: nessuna risposta senza LLM configurato, chiave ElevenLabs col nome sbagliato) |
 | `58ed2f4` | Piano del blocco 6 (piattaforma online: web + worker + Postgres su Render) aggiunto alla roadmap, nessun cambio di codice |
 | `ab149aa` | Blocco 6, passo 1: modalità condivisa (`VOICE_ORCH_DATABASE_URL`, Postgres o SQLite): chiamate, log webhook, minuti vocali e testo della knowledge nel DB; suite verde anche su Postgres |
-| (questo commit) | Blocco 6, passo 2: il worker legge famiglia e tool dal DB a ogni chiamata (D4 chiuso in modalità condivisa); FastAPI serve anche il frontend compilato |
+| `6592710` | Blocco 6, passo 2: il worker legge famiglia e tool dal DB a ogni chiamata (D4 chiuso in modalità condivisa); FastAPI serve anche il frontend compilato |
+| (questo commit) | Blocco 6, passo 3: accesso owner/visitatori (login, sola lettura, try-it gratuito per i visitatori), immagini Docker per web e worker, `render.yaml` (web + worker + Postgres). Ciclo completo verificato in locale con una chiamata LiveKit vera |

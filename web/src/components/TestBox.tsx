@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { Agent, LlmStatus, TestRouteResult } from '../types'
 import { api, ApiError } from '../api'
 import { flatten } from '../tree'
+import { useOwner } from '../auth'
 
 interface Props {
   root: Agent | null
@@ -12,6 +13,7 @@ interface Props {
  * exactly like a fresh call would), and see the actual orchestrator.handle_turn()
  * decision — not a simulation of it. Wired straight to POST /api/test/route. */
 export function TestBox({ root }: Props) {
+  const owner = useOwner()
   const [utterance, setUtterance] = useState('')
   const [startAgentId, setStartAgentId] = useState<string>('')
   const [channel, setChannel] = useState('voice')
@@ -28,7 +30,7 @@ export function TestBox({ root }: Props) {
       .getLlmStatus()
       .then((s) => {
         setLlm(s)
-        setUseConfigured(s.real)
+        setUseConfigured(s.real && owner)
       })
       .catch(() => setLlm(null))
   }, [])
@@ -89,7 +91,7 @@ export function TestBox({ root }: Props) {
           <input
             type="checkbox"
             checked={useConfigured}
-            disabled={!llm?.real}
+            disabled={!llm?.real || !owner}
             onChange={(e) => setUseConfigured(e.target.checked)}
           />
           {llm?.real ? (

@@ -1,0 +1,16 @@
+.git
+.ci_venv
+.venv
+**/__pycache__
+**/*.pyc
+.pytest_cache
+web/node_modules
+web/dist
+data/*.db
+data/*.jsonl
+data/*.json
+_to_delete
+d12_out
+.env
+.env.*
+!.env.example
