@@ -227,4 +227,43 @@ class KnowledgeDocRow(Base):
     source_type: Mapped[str] = mapped_column(default="")  # "text" | "file" | "url"
     source_url: Mapped[str] = mapped_column(default="")
     updated_at: Mapped[str] = mapped_column(default="")
+    # Blocco 6, shared mode only: the document's text lives here instead of
+    # in a file, because the voice worker (another machine) has to read it.
+    # Always "" in the default file mode.
+    content: Mapped[str] = mapped_column(Text, default="")
+
+
+# ---- Blocco 6: shared mode (config.DATABASE_URL set) ----
+# What the default mode keeps in files (call_log.py, tools/webhook_log.py,
+# voice/usage_guard.py) lives here instead, so the web service and the voice
+# worker — two machines — see the same data. Each record is stored whole as
+# JSON (the same dict the file mode writes as a line), plus the few columns
+# the API filters or orders on. A future multi-tenant step adds a
+# workspace_id column to these and to every table above.
+
+
+class CallRow(Base):
+    __tablename__ = "calls"
+
+    call_id: Mapped[str] = mapped_column(primary_key=True)
+    source: Mapped[str] = mapped_column(default="", index=True)
+    started_at: Mapped[str] = mapped_column(default="", index=True)
+    record_json: Mapped[str] = mapped_column(Text, default="{}")
+
+
+class WebhookExecutionRow(Base):
+    __tablename__ = "webhook_executions"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    at: Mapped[str] = mapped_column(default="", index=True)
+    record_json: Mapped[str] = mapped_column(Text, default="{}")
+
+
+class UsageDayRow(Base):
+    """Voice minutes per UTC day (usage_guard.py's daily cap)."""
+
+    __tablename__ = "usage_days"
+
+    date: Mapped[str] = mapped_column(primary_key=True)
+    minutes: Mapped[float] = mapped_column(default=0.0)
 

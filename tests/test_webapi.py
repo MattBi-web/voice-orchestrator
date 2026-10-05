@@ -9,6 +9,7 @@ import jwt
 import pytest
 from fastapi.testclient import TestClient
 
+from conftest import configure_test_db
 from voice_orchestrator import config
 from voice_orchestrator.webapi import db
 from voice_orchestrator.webapi.app import app
@@ -16,7 +17,7 @@ from voice_orchestrator.webapi.app import app
 
 @pytest.fixture
 def client(tmp_path, monkeypatch):
-    db.configure(tmp_path / "test_agents.db")
+    configure_test_db(tmp_path, monkeypatch, "test_agents.db")
     # Every test gets its own throwaway call log too, for the same reason:
     # nothing here should touch a developer's real data/call_log.jsonl, and
     # tests must not see each other's logged calls.

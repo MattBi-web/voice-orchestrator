@@ -25,21 +25,51 @@ from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
+import logging
+
 from .. import config
 from .models import Base
 
+logger = logging.getLogger(__name__)
 
-def make_engine(db_file: Path | None = None):
-    path = db_file or config.WEBAPI_DB_FILE
-    path.parent.mkdir(parents=True, exist_ok=True)
-    engine = create_engine(f"sqlite:///{path}", connect_args={"check_same_thread": False})
+
+def normalize_url(url: str) -> str:
+    """Render (and Heroku before it) hand out `postgres://…`; SQLAlchemy
+    wants a dialect+driver. psycopg 3 is the driver the `postgres` extra
+    installs."""
+    for prefix in ("postgres://", "postgresql://"):
+        if url.startswith(prefix):
+            return "postgresql+psycopg://" + url[len(prefix):]
+    return url
+
+
+def make_engine(target: Path | str | None = None):
+    """`target`: a SQLAlchemy URL, a SQLite file path, or None — then
+    config.DATABASE_URL if set (shared mode), else the builder's own SQLite
+    file (config.WEBAPI_DB_FILE)."""
+    if target is None:
+        target = config.DATABASE_URL or config.WEBAPI_DB_FILE
+    if isinstance(target, str) and "://" in target:
+        url = normalize_url(target)
+    else:
+        path = Path(target)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        url = f"sqlite:///{path}"
+    if url.startswith("sqlite"):
+        engine = create_engine(url, connect_args={"check_same_thread": False})
+    else:
+        # pre_ping: a managed Postgres closes idle connections; without it
+        # the first request after a quiet spell fails on a dead socket.
+        engine = create_engine(url, pool_pre_ping=True, pool_recycle=300)
     Base.metadata.create_all(engine)
     sync_columns(engine)
     return engine
 
 
-def _sql_literal(value) -> str:
+def _sql_literal(value, dialect: str = "sqlite") -> str:
     if isinstance(value, bool):
+        if dialect == "postgresql":
+            return "TRUE" if value else "FALSE"
         return "1" if value else "0"
     if isinstance(value, (int, float)):
         return repr(value)
@@ -74,7 +104,7 @@ def sync_columns(engine: Engine) -> list[str]:
                 col_type = column.type.compile(dialect=engine.dialect)
                 default = column.default.arg if column.default is not None and column.default.is_scalar else None
                 if default is not None:
-                    stmt = f'ALTER TABLE "{table.name}" ADD COLUMN "{column.name}" {col_type} NOT NULL DEFAULT {_sql_literal(default)}'
+                    stmt = f'ALTER TABLE "{table.name}" ADD COLUMN "{column.name}" {col_type} NOT NULL DEFAULT {_sql_literal(default, engine.dialect.name)}'
                 else:
                     stmt = f'ALTER TABLE "{table.name}" ADD COLUMN "{column.name}" {col_type}'
                 conn.execute(text(stmt))
@@ -84,6 +114,7 @@ def sync_columns(engine: Engine) -> list[str]:
                 if name in mapped or info.get("nullable", True) or info.get("default") is not None:
                     continue
                 stmt = f'ALTER TABLE "{table.name}" DROP COLUMN "{name}"'
+                logger.warning("schema sync: dropping orphaned NOT NULL column %s.%s", table.name, name)
                 conn.execute(text(stmt))
                 ran.append(stmt)
     return ran
@@ -93,11 +124,12 @@ _engine = make_engine()
 _SessionLocal = sessionmaker(bind=_engine, expire_on_commit=False)
 
 
-def configure(db_file: Path) -> None:
-    """Point this module at a different database file — used by tests to
-    get a throwaway DB per test instead of touching the real one."""
+def configure(target: Path | str) -> None:
+    """Point this module at a different database (file path or URL) — used
+    by tests to get a throwaway DB per test instead of touching the real one."""
     global _engine, _SessionLocal
-    _engine = make_engine(db_file)
+    _engine.dispose()
+    _engine = make_engine(target)
     _SessionLocal = sessionmaker(bind=_engine, expire_on_commit=False)
 
 

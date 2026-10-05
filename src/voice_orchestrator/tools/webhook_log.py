@@ -39,7 +39,20 @@ class Execution:
         return asdict(self)
 
 
+def _shared_store():
+    """Shared mode (blocco 6): same lazy switch to the database as
+    call_log._shared_store()."""
+    if not config.shared_mode():
+        return None
+    from ..webapi import stores
+
+    return stores
+
+
 def append(execution: Execution, path: Path | None = None) -> None:
+    if path is None and (store := _shared_store()):
+        store.webhook_append(execution.as_dict())
+        return
     p = path or config.WEBHOOK_LOG_FILE
     p.parent.mkdir(parents=True, exist_ok=True)
     with p.open("a", encoding="utf-8") as f:
@@ -51,6 +64,14 @@ def read_all(path: Path | None = None) -> list[Execution]:
     line (a half-written append from a crash, say) is skipped rather than
     taking the whole dashboard down — same defensive read as
     `call_log.read_all()`."""
+    if path is None and (store := _shared_store()):
+        out = []
+        for data in store.webhook_all():
+            try:
+                out.append(Execution(**data))
+            except TypeError:
+                continue
+        return out
     p = path or config.WEBHOOK_LOG_FILE
     out: list[Execution] = []
     try:

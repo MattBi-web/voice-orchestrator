@@ -185,7 +185,7 @@ CAI e alla tesi sulle sales force) e senza trascrizioni salvate nessuna analisi 
 - [x] Form agente: i file di knowledge sono checkbox sui documenti esistenti, non più
       nomi a testo libero (un refuso falliva in silenzio).
 
-### Blocco 6 — Piattaforma online (Render, due servizi + Postgres)  ⏳ pianificato
+### Blocco 6 — Piattaforma online (Render, due servizi + Postgres)  🚧 in corso
 
 Perché: oggi il progetto si prova solo in locale. Su Render gira solo il worker vocale, un
 background worker senza URL, quindi non lo si può nemmeno chiamare senza un client esterno come
@@ -208,18 +208,27 @@ unico con disco condiviso.
 | Postgres | base (256 MB) | $6 + spazio |
 | **Totale** | | **~$38–40** (oggi $25, solo il worker) |
 
-- [ ] **DB configurabile.** `webapi/db.py` legge `DATABASE_URL`: Postgres su Render, SQLite in
-      locale e nei test (default invariato). `sync_columns()` (D15) va verificato o adattato su
-      Postgres: tipi, `ALTER TABLE`, nessun `DROP COLUMN` silenzioso su dati veri. Test della suite
-      anche contro Postgres, se disponibile in locale (Docker o Postgres.app).
-- [ ] **Dati condivisi nel DB, non su file.** Web e worker sono macchine diverse e non condividono
+- [x] **DB configurabile.** `VOICE_ORCH_DATABASE_URL` attiva la **modalità condivisa**: un solo
+      database (Postgres su Render; accettato il formato `postgres://…` di Render, driver psycopg 3
+      con l'extra `postgres`) per tutto. Senza, il comportamento è quello di prima: SQLite del
+      builder più file, quindi CLI e test non richiedono database. `sync_columns()` ora usa letterali
+      adatti al dialetto, e il `DROP COLUMN` di una colonna orfana viene loggato.
+      `VOICE_ORCH_TEST_DATABASE_URL` fa girare tutta la suite in modalità condivisa contro un DB
+      vero: 182/182 verdi su Postgres 16.
+- [x] **Dati condivisi nel DB, non su file.** Web e worker sono macchine diverse e non condividono
       il disco. Vanno nel DB: il call log (oggi `data/call_log.jsonl`), le analisi (già in DB), il
       log dei webhook (oggi JSONL), il contenuto dei documenti di knowledge (oggi file in
       `data/knowledge/`, D16) e il contatore dei minuti di `usage_guard` (oggi file JSON).
       Vincolo da non rompere: il **core** (CLI, `orchestrator.py`, worker) resta importabile senza
       `fastapi`/`sqlalchemy` (vedi le decisioni su `call_log.py`). Strada probabile: interfacce di
       storage nel core con un'implementazione su file (default, CLI e test) e una su DB, selezionata
-      da configurazione.
+      da configurazione. **Fatto così:** `call_log`, `webhook_log`, `UsageGuard` e `knowledge`
+      passano a `webapi/stores.py` (import lazy) solo se `config.shared_mode()`. Nuove tabelle
+      `calls`, `webhook_executions`, `usage_days`; il testo dei documenti in
+      `knowledge_docs.content`, con la prima apertura che copia i documenti demo nel DB.
+      L'incremento dei minuti usa un lock di riga, per due worker che chiudono insieme.
+      `tests/test_shared_mode.py` verifica anche che in modalità condivisa non venga scritto nessun
+      file.
 - [ ] **Il worker legge la famiglia dal DB** a ogni chiamata, invece di `config/agents.yaml`: quello
       che salvo nel builder è subito "in onda". Chiude D4. `agents.yaml` resta il seed iniziale e
       l'export manuale resta utile per la CLI.
@@ -327,4 +336,5 @@ infrastruttura che nessuna rifinitura della UI chiude.
 | `a0e9dde` | D3 (try-it sul provider configurato), D10 (testo per il chiamante separato dall'istruzione per l'LLM), D11 (criteri strutturali, niente verdetti euristici sui criteri in linguaggio naturale), D15 (`sync_columns()`: un DB locale vecchio torna ad aprirsi) |
 | `8df57c3` | Blocco 5: knowledge base da UI (documenti da testo/file/URL, vista dei chunk, anteprima del retrieval, picker nel form agente; ricerca condivisa con il tool, cache invalidata alla modifica, chunk a punteggio 0 scartati) |
 | `8a429cb` | D9 (tab caricate su richiesta: chunk iniziale 1.172 → 261 kB) + D12 (voce per agente e chiusura dopo il saluto verificate su una chiamata LiveKit reale; corretti due bug che rompevano ogni chiamata vera: nessuna risposta senza LLM configurato, chiave ElevenLabs col nome sbagliato) |
-| (questo commit) | Piano del blocco 6 (piattaforma online: web + worker + Postgres su Render) aggiunto alla roadmap, nessun cambio di codice |
+| `58ed2f4` | Piano del blocco 6 (piattaforma online: web + worker + Postgres su Render) aggiunto alla roadmap, nessun cambio di codice |
+| (questo commit) | Blocco 6, passo 1: modalità condivisa (`VOICE_ORCH_DATABASE_URL`, Postgres o SQLite): chiamate, log webhook, minuti vocali e testo della knowledge nel DB; suite verde anche su Postgres |

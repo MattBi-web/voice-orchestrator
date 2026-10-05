@@ -72,6 +72,7 @@ def _startup_seed() -> None:
         seed.seed_mcp_if_empty(session)
         seed.seed_webhook_tools_if_empty(session)
         seed.seed_analysis_if_empty(session)
+        knowledge_repository.seed_from_files(session)  # shared mode only; no-op otherwise
         # Always re-sync, even when nothing was just seeded: this is also
         # what makes the registry correct across a plain server restart,
         # when the DB already holds rows from a previous run.

@@ -102,11 +102,17 @@ class Hit:
     score: float
 
 
-def _fingerprint(names: tuple[str, ...]) -> tuple[tuple[str, int, int], ...]:
+def _fingerprint(names: tuple[str, ...]) -> tuple:
     """(name, mtime, size) per file — part of the cache key, so a document
     edited or re-uploaded from the UI is re-indexed on the next query
     instead of being served stale for the life of the process. A missing
-    file fingerprints as (name, 0, 0) and simply contributes no chunks."""
+    file fingerprints as (name, 0, 0) and simply contributes no chunks.
+    In shared mode (blocco 6) the text is in the database: (name,
+    updated_at, length) there, prefixed so the two kinds never collide."""
+    if config.shared_mode():
+        from .webapi import stores
+
+        return ("db",) + stores.knowledge_fingerprint(names)
     out = []
     for name in names:
         path = document_path(name)
@@ -118,20 +124,34 @@ def _fingerprint(names: tuple[str, ...]) -> tuple[tuple[str, int, int], ...]:
     return tuple(out)
 
 
-def load_chunks(names: tuple[str, ...] | list[str]) -> list[Chunk]:
-    chunks: list[Chunk] = []
+def read_texts(names: tuple[str, ...] | list[str]) -> dict[str, str]:
+    """name -> full text, for the documents that exist: files in the default
+    mode, database rows in shared mode (blocco 6)."""
+    if config.shared_mode():
+        from .webapi import stores
+
+        return stores.knowledge_texts(list(names))
+    out = {}
     for name in names:
         path = document_path(name)
-        if not path.is_file():
-            continue
-        text = path.read_text(encoding="utf-8", errors="replace")
-        chunks.extend(Chunk(name, i, c) for i, c in enumerate(chunk_text(text)))
+        if path.is_file():
+            out[name] = path.read_text(encoding="utf-8", errors="replace")
+    return out
+
+
+def load_chunks(names: tuple[str, ...] | list[str]) -> list[Chunk]:
+    texts = read_texts(names)
+    chunks: list[Chunk] = []
+    for name in names:  # the caller's order, not the store's
+        if name in texts:
+            chunks.extend(Chunk(name, i, c) for i, c in enumerate(chunk_text(texts[name])))
     return chunks
 
 
 @lru_cache(maxsize=64)
-def _index(fingerprint: tuple[tuple[str, int, int], ...]):
-    chunks = load_chunks([name for name, _, _ in fingerprint])
+def _index(fingerprint: tuple):
+    entries = fingerprint[1:] if fingerprint and fingerprint[0] == "db" else fingerprint
+    chunks = load_chunks([name for name, _, _ in entries])
     retriever = bm25s.BM25()
     if chunks:
         retriever.index([tokenize(c.text) for c in chunks], show_progress=False)

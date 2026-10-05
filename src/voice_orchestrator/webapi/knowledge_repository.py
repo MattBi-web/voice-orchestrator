@@ -88,6 +88,51 @@ def _files() -> list[str]:
     )
 
 
+# Where a document's text lives: a file in data/knowledge/ (default mode) or
+# KnowledgeDocRow.content (shared mode, blocco 6 — the worker is another
+# machine). These helpers are the only place that knows; everything below
+# goes through them, always with the request's own session, so a save is
+# visible to the rest of the same request before it commits.
+
+
+def _stored_names(session: Session) -> list[str]:
+    if config.shared_mode():
+        rows = session.scalars(select(KnowledgeDocRow).where(KnowledgeDocRow.content != "")).all()
+        return sorted(r.name for r in rows)
+    return _files()
+
+
+def _read_text(session: Session, name: str) -> str | None:
+    if not _NAME_RE.match(name):
+        return None
+    if config.shared_mode():
+        row = session.get(KnowledgeDocRow, name)
+        return row.content if row and row.content else None
+    path = knowledge.document_path(name)
+    return path.read_text(encoding="utf-8", errors="replace") if path.is_file() else None
+
+
+def _write_text(session: Session, name: str, content: str) -> None:
+    if config.shared_mode():
+        row = session.get(KnowledgeDocRow, name) or KnowledgeDocRow(name=name)
+        row.content = content
+        session.add(row)
+        return
+    path = knowledge.document_path(name)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{name}.tmp")
+    tmp.write_bytes(content.encode("utf-8"))
+    os.replace(tmp, path)  # atomic: a reader never sees a half-written file
+
+
+def _file_mtime(name: str) -> str:
+    path = knowledge.document_path(name)
+    try:
+        return datetime.fromtimestamp(path.stat().st_mtime, timezone.utc).isoformat()
+    except OSError:
+        return ""
+
+
 @dataclass
 class DocumentInfo:
     name: str
@@ -103,39 +148,37 @@ class DocumentInfo:
         return self.__dict__.copy()
 
 
-def _info(session: Session, name: str, used_by: list[str]) -> DocumentInfo:
-    path = knowledge.document_path(name)
+def _info(session: Session, name: str, used_by: list[str], text: str | None = None) -> DocumentInfo:
     row = session.get(KnowledgeDocRow, name)
-    if path.is_file():
-        stat = path.stat()
-        mtime = datetime.fromtimestamp(stat.st_mtime, timezone.utc).isoformat()
-        chunks = len(knowledge.load_chunks([name]))
-        return DocumentInfo(
-            name, True, stat.st_size, chunks, row.source_type if row else "", row.source_url if row else "",
-            row.updated_at if row and row.updated_at else mtime, used_by,
-        )
-    return DocumentInfo(name, False, 0, 0, row.source_type if row else "", row.source_url if row else "", "", used_by)
+    text = text if text is not None else _read_text(session, name)
+    source_type = row.source_type if row else ""
+    source_url = row.source_url if row else ""
+    if text is None:
+        return DocumentInfo(name, False, 0, 0, source_type, source_url, "", used_by)
+    updated = row.updated_at if row and row.updated_at else _file_mtime(name)
+    return DocumentInfo(
+        name, True, len(text.encode("utf-8")), len(knowledge.chunk_text(text)), source_type, source_url, updated, used_by
+    )
 
 
 def list_documents(session: Session) -> list[DocumentInfo]:
-    """Every document on disk, plus any name an agent references that has
-    no file — listed as `exists=False`, because a typo'd or deleted file
+    """Every stored document, plus any name an agent references that has
+    none — listed as `exists=False`, because a typo'd or deleted document
     otherwise fails silently (the agent just never finds anything)."""
     used = _agents_using(session)
-    names = sorted(set(_files()) | set(used))
+    names = sorted(set(_stored_names(session)) | set(used))
     return [_info(session, n, used.get(n, [])) for n in names]
 
 
 def get_document(session: Session, name: str) -> dict:
-    path = knowledge.document_path(name)
-    if not _NAME_RE.match(name) or not path.is_file():
+    text = _read_text(session, name)
+    if text is None:
         raise DocumentNotFound(name)
-    info = _info(session, name, _agents_using(session).get(name, []))
-    chunks = knowledge.load_chunks([name])
+    info = _info(session, name, _agents_using(session).get(name, []), text=text)
     return {
         **info.as_dict(),
-        "content": path.read_text(encoding="utf-8", errors="replace"),
-        "chunks": [{"index": c.index, "text": c.text} for c in chunks],
+        "content": text,
+        "chunks": [{"index": i, "text": c} for i, c in enumerate(knowledge.chunk_text(text))],
     }
 
 
@@ -148,38 +191,54 @@ def save_document(
     data = content.encode("utf-8")
     if len(data) > MAX_DOCUMENT_BYTES:
         raise InvalidDocument(f"Documento troppo grande ({len(data)} byte, massimo {MAX_DOCUMENT_BYTES})")
-    path = knowledge.document_path(name)
-    if path.exists() and not overwrite:
+    if _read_text(session, name) is not None and not overwrite:
         raise DocumentExists(f"Esiste già un documento {name!r}")
     if not knowledge.chunk_text(content):
         raise InvalidDocument("Il documento non contiene testo utilizzabile (solo titoli?)")
 
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(f".{name}.tmp")
-    tmp.write_bytes(data)
-    os.replace(tmp, path)  # atomic: a reader never sees a half-written file
-
+    _write_text(session, name, content)
     row = session.get(KnowledgeDocRow, name) or KnowledgeDocRow(name=name)
     row.source_type = source_type
     row.source_url = source_url
     row.updated_at = datetime.now(timezone.utc).isoformat()
     session.add(row)
     session.flush()
-    return _info(session, name, _agents_using(session).get(name, []))
+    return _info(session, name, _agents_using(session).get(name, []), text=content)
 
 
 def delete_document(session: Session, name: str) -> None:
-    path = knowledge.document_path(name)
-    if not _NAME_RE.match(name) or not path.is_file():
+    if _read_text(session, name) is None:
         raise DocumentNotFound(name)
     users = _agents_using(session).get(name, [])
     if users:
         raise DocumentInUse(name, users)
-    path.unlink()
+    if not config.shared_mode():
+        knowledge.document_path(name).unlink()
     row = session.get(KnowledgeDocRow, name)
     if row is not None:
         session.delete(row)
         session.flush()
+
+
+def seed_from_files(session: Session) -> int:
+    """Shared mode: copy the bundled documents in data/knowledge/ into the
+    database the first time it has none, so a fresh deploy starts with the
+    demo family's knowledge — the same one-time seed agents.yaml gets.
+    Returns how many were copied (0 if the database already had documents,
+    or outside shared mode)."""
+    if not config.shared_mode() or _stored_names(session):
+        return 0
+    copied = 0
+    for name in _files():
+        text = knowledge.document_path(name).read_text(encoding="utf-8", errors="replace")
+        if not text.strip():
+            continue
+        row = session.get(KnowledgeDocRow, name) or KnowledgeDocRow(name=name)
+        row.content, row.source_type, row.updated_at = text, "", datetime.now(timezone.utc).isoformat()
+        session.add(row)
+        copied += 1
+    session.flush()
+    return copied
 
 
 # ---- web pages ----

@@ -51,6 +51,22 @@ USAGE_FILE = Path(os.environ.get("VOICE_ORCH_USAGE_FILE", ROOT / "data" / "usage
 # this implies.
 WEBAPI_DB_FILE = Path(os.environ.get("VOICE_ORCH_WEBAPI_DB_FILE", ROOT / "data" / "agents.db"))
 
+# Blocco 6 — "shared mode". Unset (the default): everything works exactly as
+# before — the builder's SQLite file above, plus plain files for the call
+# log, webhook log, usage tally and knowledge documents, so the CLI and the
+# test suite need no database at all. Set (a SQLAlchemy URL; Render's
+# `postgres://…` form is accepted): that one database holds *everything*,
+# because the web service and the voice worker run on different machines
+# and share nothing else — the worker reads the agent family, tools and
+# knowledge from it and writes calls and usage back to it. Needs the
+# `webapi` extra (sqlalchemy) and, for Postgres, the `postgres` extra.
+DATABASE_URL = os.environ.get("VOICE_ORCH_DATABASE_URL", "").strip()
+
+
+def shared_mode() -> bool:
+    """Read at call time (not import time) so tests can flip it."""
+    return bool(DATABASE_URL)
+
 # Read directly here too (not just by livekit-agents' own CLI) so the
 # webapi's live voice test console (webapi/voice_token.py) can mint a room
 # token without needing the full voice/worker.py import chain.

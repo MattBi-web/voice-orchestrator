@@ -161,7 +161,22 @@ def from_session(
     )
 
 
+def _shared_store():
+    """Blocco 6: in shared mode the log lives in the database (web service
+    and voice worker are different machines). Imported lazily so the
+    default file mode never needs sqlalchemy. An explicit `path` always
+    means the file — that's what tests and tools passing one want."""
+    if not config.shared_mode():
+        return None
+    from .webapi import stores
+
+    return stores
+
+
 def append(record: CallRecord, path: Path | None = None) -> None:
+    if path is None and (store := _shared_store()):
+        store.calls_append(record.as_dict())
+        return
     p = path or config.CALL_LOG_FILE
     p.parent.mkdir(parents=True, exist_ok=True)
     with p.open("a", encoding="utf-8") as f:
@@ -173,6 +188,8 @@ def read_all(path: Path | None = None) -> list[CallRecord]:
     (a half-written append from a crash, say) is skipped rather than taking
     the whole dashboard down — the same defensive read `usage_guard.py`
     applies to its own on-disk state."""
+    if path is None and (store := _shared_store()):
+        return [r for r in (_load(d) for d in store.calls_all()) if r is not None]
     p = path or config.CALL_LOG_FILE
     records: list[CallRecord] = []
     try:
@@ -194,7 +211,18 @@ def read_all(path: Path | None = None) -> list[CallRecord]:
 def find(call_id: str, path: Path | None = None) -> CallRecord | None:
     """The most recent record with this id (ids are unique per call in
     practice; "most recent" just makes a duplicate harmless)."""
+    if path is None and (store := _shared_store()):
+        data = store.calls_find(call_id)
+        return _load(data) if data else None
     for record in reversed(read_all(path)):
         if record.call_id == call_id:
             return record
     return None
+
+
+def _load(data: dict[str, Any]) -> CallRecord | None:
+    try:
+        return CallRecord(**data)
+    except TypeError:
+        return None
+

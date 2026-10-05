@@ -10,6 +10,7 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
+from conftest import configure_test_db
 from voice_orchestrator import config, knowledge
 from voice_orchestrator.agents.registry import AgentSpec, ToolBinding
 from voice_orchestrator.state import CallSession
@@ -30,7 +31,7 @@ def kb_dir(tmp_path, monkeypatch):
 
 @pytest.fixture
 def client(tmp_path, monkeypatch, kb_dir):
-    db.configure(tmp_path / "kb_agents.db")
+    configure_test_db(tmp_path, monkeypatch, "kb_agents.db")
     monkeypatch.setattr(config, "CALL_LOG_FILE", tmp_path / "call_log.jsonl")
     monkeypatch.setattr(config, "WEBHOOK_LOG_FILE", tmp_path / "webhook_log.jsonl")
     monkeypatch.setattr(config, "PROVIDER", "fake")
@@ -111,7 +112,7 @@ def test_add_text_document_then_read_it_back(client):
 def test_add_sanitizes_names_and_rejects_empty_content(client, kb_dir):
     r = client.post("/api/knowledge", json={"name": "../evil", "content": "## a\nb"})
     assert r.status_code == 201 and r.json()["name"] == "evil.md"  # path parts stripped, not followed
-    assert (kb_dir / "evil.md").exists()
+    assert client.get("/api/knowledge/evil.md").status_code == 200
     assert client.post("/api/knowledge", json={"name": "/// ..", "content": "x"}).status_code == 400
     assert client.post("/api/knowledge", json={"name": "vuoto", "content": "   "}).status_code == 400
     assert client.post("/api/knowledge", json={"name": "titoli", "content": "# Solo\n## Titoli"}).status_code == 400

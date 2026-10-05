@@ -51,10 +51,18 @@ class UsageGuard:
         self.max_minutes_per_day = (
             max_minutes_per_day if max_minutes_per_day is not None else config.MAX_CALL_MINUTES_PER_DAY
         )
+        # Shared mode (blocco 6) keeps the tally in the database, so the cap
+        # holds across worker processes and restarts on other machines; an
+        # explicit `path` (tests) always means the file.
+        self._shared = path is None and config.shared_mode()
         self.path = path or config.USAGE_FILE
 
     def _read(self) -> UsageState:
         today = _today()
+        if self._shared:
+            from ..webapi import stores
+
+            return UsageState(date=today, minutes=stores.usage_minutes(today))
         try:
             data = json.loads(self.path.read_text(encoding="utf-8"))
             if data.get("date") == today:
@@ -83,6 +91,11 @@ class UsageGuard:
         long it actually ran. Re-reads before writing, rather than trusting
         an in-memory total, so two calls finishing close together don't
         clobber each other's update."""
+        if self._shared:
+            from ..webapi import stores
+
+            stores.usage_add(_today(), max(duration_seconds, 0.0) / 60.0)
+            return
         state = self._read()
         state.minutes += max(duration_seconds, 0.0) / 60.0
         self._write(state)
