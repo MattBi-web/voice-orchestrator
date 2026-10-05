@@ -36,9 +36,9 @@ export function AuthBar({ auth, onChange }: { auth: AuthState; onChange: (a: Aut
   if (auth.owner) {
     return (
       <div className="auth-bar">
-        <span className="auth-bar__who">Proprietario</span>
+        <span className="auth-bar__who">Signed in as owner</span>
         <button type="button" className="btn-link" onClick={logout}>
-          Esci
+          Sign out
         </button>
       </div>
     )
@@ -53,21 +53,21 @@ export function AuthBar({ auth, onChange }: { auth: AuthState; onChange: (a: Aut
             autoFocus
             required
             placeholder="Password"
-            aria-label="Password del proprietario"
+            aria-label="Owner password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
           />
           <button type="submit" disabled={busy}>
-            {busy ? '…' : 'Entra'}
+            {busy ? '…' : 'Sign in'}
           </button>
           <button type="button" className="btn-link" onClick={() => setOpen(false)}>
-            Annulla
+            Cancel
           </button>
           {error && <span className="error auth-bar__error">{error}</span>}
         </form>
       ) : (
         <button type="button" className="btn-secondary" onClick={() => setOpen(true)}>
-          Accedi
+          Sign in to edit
         </button>
       )}
     </div>

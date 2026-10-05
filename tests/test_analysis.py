@@ -58,7 +58,7 @@ def test_heuristic_does_not_judge_natural_language_criteria():
     result = analyze(TURNS, CRITERIA, DATA, FakeProvider())
     assert result.method == "heuristic"
     assert all(c.result == "unknown" for c in result.criteria)
-    assert all("provider LLM" in c.rationale for c in result.criteria)
+    assert all("language model" in c.rationale for c in result.criteria)
 
     data = {d.item_id: d.value for d in result.data}
     assert data["vuole_operatore"] is True
@@ -100,7 +100,7 @@ def test_llm_path_parses_fenced_json_and_coerces_types():
 def test_llm_garbage_reply_is_reported_not_hidden():
     result = analyze(TURNS, CRITERIA, DATA, _StubLLM("non so cosa dire"))
     assert result.method == "llm"
-    assert "fallita" in result.summary
+    assert "failed" in result.summary
     assert all(c.result == "unknown" for c in result.criteria)
 
 
@@ -127,7 +127,7 @@ def test_as_dict_from_dict_round_trip():
 
 
 def test_defaults_are_well_formed():
-    assert [c.id for c in analysis.DEFAULT_CRITERIA] == ["richiesta_risolta", "agente_corretto", "senza_operatore"]
+    assert [c.id for c in analysis.DEFAULT_CRITERIA] == ["request_resolved", "reached_specialist", "no_human_handover"]
     assert all(c.kind in analysis.KINDS for c in analysis.DEFAULT_CRITERIA)
     assert all(d.type in analysis.DATA_TYPES for d in analysis.DEFAULT_DATA_ITEMS)
 
@@ -185,4 +185,4 @@ def test_structural_criteria_never_reach_the_llm_and_keep_their_order():
 def test_default_criteria_without_keys_give_real_verdicts_on_structure():
     result = analyze(ROUTED, analysis.DEFAULT_CRITERIA, [], FakeProvider())
     by_id = {c.criterion_id: c.result for c in result.criteria}
-    assert by_id == {"richiesta_risolta": "unknown", "agente_corretto": "success", "senza_operatore": "success"}
+    assert by_id == {"request_resolved": "unknown", "reached_specialist": "success", "no_human_handover": "success"}

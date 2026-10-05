@@ -32,7 +32,7 @@ export function VoiceTestConsole() {
   const [configured, setConfigured] = useState<boolean | null>(null)
   const [status, setStatus] = useState<Status>('idle')
   const [error, setError] = useState<string | null>(null)
-  const [roomName, setRoomName] = useState<string | null>(null)
+  const [, setRoomName] = useState<string | null>(null)
   const [transcript, setTranscript] = useState<TranscriptLine[]>([])
   const roomRef = useRef<Room | null>(null)
   const audioRef = useRef<HTMLAudioElement | null>(null)
@@ -102,17 +102,14 @@ export function VoiceTestConsole() {
 
   return (
     <div className="voice-console">
-      <h2>Test live (voce)</h2>
       <p className="voice-console__hint">
-        Parla davvero con l'agent family — microfono vero, LiveKit vero. Serve il worker
-        acceso altrove (<code>python -m voice_orchestrator.voice.worker dev</code>) perché
-        qualcuno risponda nella stanza.
+        Uses your microphone. The demo agents speak Italian: try asking about your bill, roaming, or a slow
+        connection, and say "arrivederci" to end the call.
       </p>
 
       {configured === false && (
         <p className="error">
-          LIVEKIT_URL/LIVEKIT_API_KEY/LIVEKIT_API_SECRET non impostate lato backend — vedi la
-          sezione "Voice layer" del README.
+          Voice calls aren't set up on this server: LiveKit credentials are missing.
         </p>
       )}
 
@@ -121,14 +118,14 @@ export function VoiceTestConsole() {
       <div className="voice-console__controls">
         {status !== 'connected' ? (
           <button type="button" onClick={connect} disabled={configured !== true || status === 'connecting'}>
-            {status === 'connecting' ? 'Connessione…' : 'Connetti e parla'}
+            {status === 'connecting' ? 'Connecting…' : 'Start call'}
           </button>
         ) : (
           <button type="button" className="btn-danger" onClick={disconnect}>
-            Disconnetti
+            End call
           </button>
         )}
-        {status === 'connected' && <span className="voice-console__status">● in chiamata — {roomName}</span>}
+        {status === 'connected' && <span className="voice-console__status">● On a call</span>}
       </div>
 
       {/* eslint-disable-next-line jsx-a11y/media-has-caption */}

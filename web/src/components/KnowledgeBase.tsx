@@ -13,7 +13,7 @@ import { useOwner } from '../auth'
 type AddMode = 'text' | 'file' | 'url'
 type Pane = { kind: 'doc'; name: string } | { kind: 'add' } | { kind: 'none' }
 
-const SOURCE_LABEL: Record<string, string> = { text: 'testo', file: 'file', url: 'URL', '': 'file locale' }
+const SOURCE_LABEL: Record<string, string> = { text: 'Pasted text', file: 'Uploaded file', url: 'Web page', '': 'Bundled with the demo' }
 
 function fmtSize(bytes: number) {
   return bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(1)} KB`
@@ -36,7 +36,7 @@ function AddDocument({ onAdded }: { onAdded: (name: string) => void }) {
     if (!file) return
     setError(null)
     if (!/\.(md|txt)$/i.test(file.name)) {
-      setError('Solo file .md o .txt: PDF e Word non sono ancora supportati.')
+      setError('Only .md and .txt files can be added. PDF and Word are not supported yet.')
       return
     }
     setContent(await file.text())
@@ -63,7 +63,7 @@ function AddDocument({ onAdded }: { onAdded: (name: string) => void }) {
   return (
     <form className="kb-section" onSubmit={submit}>
       <div className="kb-section__head">
-        <h3>Nuovo documento</h3>
+        <h3>Add a document</h3>
         <div className="kb-modes" role="tablist">
           {(['text', 'file', 'url'] as AddMode[]).map((m) => (
             <button
@@ -77,7 +77,7 @@ function AddDocument({ onAdded }: { onAdded: (name: string) => void }) {
                 setError(null)
               }}
             >
-              {m === 'text' ? 'Testo' : m === 'file' ? 'File' : 'URL'}
+              {m === 'text' ? 'Paste text' : m === 'file' ? 'Upload file' : 'Web page'}
             </button>
           ))}
         </div>
@@ -86,12 +86,11 @@ function AddDocument({ onAdded }: { onAdded: (name: string) => void }) {
       {mode === 'url' ? (
         <>
           <div className="field">
-            <label>Indirizzo della pagina</label>
+            <label>Page address</label>
             <input type="url" required placeholder="https://…" value={url} onChange={(e) => setUrl(e.target.value)} />
           </div>
           <p className="mcp-panel__hint">
-            Il server scarica la pagina e ne estrae il testo (titoli → sezioni). Serve internet in uscita dal server;
-            indirizzi locali o di rete privata sono rifiutati.
+            The page is downloaded and its headings become sections. Local and private network addresses are refused.
           </p>
         </>
       ) : mode === 'file' ? (
@@ -102,7 +101,7 @@ function AddDocument({ onAdded }: { onAdded: (name: string) => void }) {
       ) : null}
 
       <div className="field">
-        <label>Nome {mode === 'url' && '(facoltativo: altrimenti dal titolo della pagina)'}</label>
+        <label>Name {mode === 'url' && '(optional: taken from the page title)'}</label>
         <input
           required={mode !== 'url'}
           placeholder="es. orari_negozi.md"
@@ -113,27 +112,27 @@ function AddDocument({ onAdded }: { onAdded: (name: string) => void }) {
 
       {mode !== 'url' && (
         <div className="field">
-          <label>Contenuto {mode === 'file' && content && `(${content.length} caratteri letti dal file)`}</label>
+          <label>Content {mode === 'file' && content && `(${content.length} characters read from the file)`}</label>
           <textarea
             required
             rows={mode === 'file' ? 8 : 12}
-            placeholder={'## Sezione\nTesto della sezione…\n\n## Altra sezione\n…'}
+            placeholder={'## Opening hours\nWe are open…\n\n## Returns\n…'}
             value={content}
             onChange={(e) => setContent(e.target.value)}
           />
           <p className="mcp-panel__hint">
-            Ogni sezione <code>##</code> diventa un chunk; una sezione lunga viene divisa per paragrafi.
+            Each <code>##</code> section becomes one passage the agent can retrieve; long sections are split by paragraph.
           </p>
         </div>
       )}
 
       <label className="kb-check">
         <input type="checkbox" checked={overwrite} onChange={(e) => setOverwrite(e.target.checked)} />
-        Sovrascrivi se esiste già un documento con lo stesso nome
+        Replace a document with the same name
       </label>
       {error && <p className="error">{error}</p>}
       <button type="submit" disabled={busy}>
-        {busy ? (mode === 'url' ? 'Scarico…' : 'Salvo…') : 'Aggiungi'}
+        {busy ? (mode === 'url' ? 'Downloading…' : 'Adding…') : 'Add document'}
       </button>
     </form>
   )
@@ -168,7 +167,7 @@ function DocumentView({
   }, [highlight, doc])
 
   const remove = async () => {
-    if (!confirm(`Eliminare ${name}? Il file in data/knowledge/ viene cancellato.`)) return
+    if (!confirm(`Delete ${name}? This can't be undone.`)) return
     try {
       await api.deleteKnowledge(name)
       onDeleted()
@@ -188,12 +187,12 @@ function DocumentView({
         </h3>
         {owner && (
           <button type="button" className="btn-danger" onClick={remove} disabled={doc.used_by.length > 0}>
-            Elimina
+            Delete document
           </button>
         )}
       </div>
       <dl className="kb-meta">
-        <dt>Origine</dt>
+        <dt>Source</dt>
         <dd>
           {SOURCE_LABEL[doc.source_type]}
           {doc.source_url && (
@@ -205,11 +204,11 @@ function DocumentView({
             </>
           )}
         </dd>
-        <dt>Dimensione</dt>
+        <dt>Size</dt>
         <dd>
-          {fmtSize(doc.size_bytes)} · {doc.chunk_count} chunk
+          {fmtSize(doc.size_bytes)}, {doc.chunk_count} passages
         </dd>
-        <dt>Usato da</dt>
+        <dt>Used by</dt>
         <dd>
           {doc.used_by.length ? (
             doc.used_by.map((a) => <code key={a}>{a}</code>).reduce<React.ReactNode[]>(
@@ -217,18 +216,18 @@ function DocumentView({
               [],
             )
           ) : (
-            <span className="kb-muted">nessun agente — aggiungilo dal form dell'agente</span>
+            <span className="kb-muted">no agent yet. Add it from an agent's Knowledge field.</span>
           )}
         </dd>
       </dl>
       {doc.used_by.length > 0 && (
-        <p className="mcp-panel__hint">Per eliminarlo, toglilo prima dagli agenti che lo usano.</p>
+        <p className="mcp-panel__hint">To delete it, first remove it from the agents that use it.</p>
       )}
 
       <div className="kb-section__head">
-        <h4>{showRaw ? 'Testo completo' : `Chunk (${doc.chunks.length})`}</h4>
+        <h4>{showRaw ? 'Full text' : `Passages (${doc.chunks.length})`}</h4>
         <button type="button" className="btn-link" onClick={() => setShowRaw(!showRaw)}>
-          {showRaw ? 'mostra i chunk' : 'mostra il testo completo'}
+          {showRaw ? 'Show passages' : 'Show full text'}
         </button>
       </div>
       {showRaw ? (
@@ -295,24 +294,24 @@ function SearchPreview({
 
   return (
     <form className="kb-section kb-preview" onSubmit={run}>
-      <h3>Prova una domanda</h3>
+      <h3>Test a question</h3>
       <p className="mcp-panel__hint">
-        Mostra i chunk che una domanda recupera, con il punteggio BM25: è la stessa ricerca che il tool{' '}
-        <code>knowledge_lookup</code> fa durante una chiamata (che usa i primi 2). La ricerca è lessicale: una domanda
-        in italiano trova poco in un documento in inglese.
+        See which passages a question retrieves, and how strongly. It is the same search an agent runs during a
+        call, which uses the top two. Matching is by words, so an Italian question finds little in an English
+        document.
       </p>
       <div className="kb-preview__row">
         <input
           required
-          placeholder="es. la luce del router è rossa"
+          placeholder="e.g. the router light is red"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
-        <select value={scope} onChange={(e) => setScope(e.target.value)} aria-label="Dove cercare">
-          <option value="">Tutti i documenti</option>
-          {currentDoc && <option value={`doc:${currentDoc}`}>Solo {currentDoc}</option>}
+        <select value={scope} onChange={(e) => setScope(e.target.value)} aria-label="Where to search">
+          <option value="">All documents</option>
+          {currentDoc && <option value={`doc:${currentDoc}`}>Only {currentDoc}</option>}
           {agentsWithKb.length > 0 && (
-            <optgroup label="Come lo vede un agente">
+            <optgroup label="As an agent sees it">
               {agentsWithKb.map((a) => (
                 <option key={a.id} value={`agent:${a.id}`}>
                   {a.name || a.id}
@@ -321,7 +320,7 @@ function SearchPreview({
             </optgroup>
           )}
         </select>
-        <select value={topK} onChange={(e) => setTopK(Number(e.target.value))} aria-label="Quanti risultati">
+        <select value={topK} onChange={(e) => setTopK(Number(e.target.value))} aria-label="How many results">
           {[1, 2, 3, 5, 10].map((k) => (
             <option key={k} value={k}>
               top {k}
@@ -329,7 +328,7 @@ function SearchPreview({
           ))}
         </select>
         <button type="submit" disabled={busy}>
-          {busy ? 'Cerco…' : 'Cerca'}
+          {busy ? 'Searching…' : 'Search'}
         </button>
       </div>
       {error && <p className="error">{error}</p>}
@@ -337,9 +336,9 @@ function SearchPreview({
         <div className="kb-results">
           {result.hits.length === 0 ? (
             <p className="kb-muted">
-              Nessun chunk ha parole in comune con la domanda
-              {result.documents.length ? ` (cercato in: ${result.documents.join(', ')})` : ' (nessun documento)'}. In
-              chiamata, l'agente non riceverebbe nessun passaggio.
+              No passage shares a word with the question
+              {result.documents.length ? ` (searched ${result.documents.join(', ')})` : ' (no documents)'}. On a call,
+              the agent would get nothing to answer from.
             </p>
           ) : (
             <ol className="kb-hits">
@@ -350,7 +349,7 @@ function SearchPreview({
                     <button type="button" className="btn-link" onClick={() => onOpenHit(h)}>
                       {h.document} #{h.index}
                     </button>
-                    {scope.startsWith('agent:') && i < 2 && <span className="kb-tag">usato dall'agente</span>}
+                    {scope.startsWith('agent:') && i < 2 && <span className="kb-tag">used on a call</span>}
                     <span className="kb-hit__score">{h.score.toFixed(2)}</span>
                   </div>
                   <div className="kb-hit__bar" aria-hidden>
@@ -401,10 +400,9 @@ export function KnowledgeBase({ root }: { root: Agent | null }) {
   return (
     <div className="kb">
       <div className="dashboard__toolbar">
-        <h2>Knowledge base</h2>
         {owner && (
           <button type="button" onClick={() => setPane({ kind: 'add' })}>
-            + Nuovo documento
+            Add document
           </button>
         )}
       </div>
@@ -414,7 +412,7 @@ export function KnowledgeBase({ root }: { root: Agent | null }) {
       ) : (
         <div className="convos__layout">
           <ul className="convos__list">
-            {docs.length === 0 && <li className="kb-muted kb-empty">Nessun documento.</li>}
+            {docs.length === 0 && <li className="kb-muted kb-empty">No documents yet.</li>}
             {docs.map((d) => (
               <li key={d.name}>
                 <button
@@ -422,21 +420,21 @@ export function KnowledgeBase({ root }: { root: Agent | null }) {
                   className={currentDoc === d.name ? 'convos__item convos__item--active' : 'convos__item'}
                   onClick={() => (d.exists ? open(d.name) : undefined)}
                   disabled={!d.exists}
-                  title={d.exists ? undefined : 'Nessun file con questo nome in data/knowledge/'}
+                  title={d.exists ? undefined : 'No document with this name exists'}
                 >
                   <span className="convos__item-agent">{d.name}</span>
                   <span className="convos__item-time">
                     {d.exists ? (
                       <>
-                        {d.chunk_count} chunk · {fmtSize(d.size_bytes)} · {SOURCE_LABEL[d.source_type]}
+                        {d.chunk_count} passages · {fmtSize(d.size_bytes)}
                       </>
                     ) : (
-                      <span className="kb-missing">file mancante — usato da {d.used_by.join(', ')}</span>
+                      <span className="kb-missing">Missing, but used by {d.used_by.join(', ')}</span>
                     )}
                   </span>
                   {d.exists && (
                     <span className="convos__item-time">
-                      {d.used_by.length ? `usato da ${d.used_by.join(', ')}` : 'non usato da nessun agente'}
+                      {d.used_by.length ? `Used by ${d.used_by.join(', ')}` : 'Not used by any agent'}
                     </span>
                   )}
                 </button>
@@ -463,7 +461,7 @@ export function KnowledgeBase({ root }: { root: Agent | null }) {
                 }}
               />
             ) : (
-              <p className="kb-muted">Scegli un documento a sinistra per vederne i chunk, o aggiungine uno nuovo.</p>
+              <p className="kb-muted">Select a document to see the passages it is split into.</p>
             )}
           </div>
         </div>

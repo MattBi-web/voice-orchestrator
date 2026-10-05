@@ -80,11 +80,11 @@ function McpServerForm({
   return (
     <form className="agent-form mcp-panel__form" onSubmit={handleSubmit}>
       <fieldset className="ro-fieldset" disabled={!owner}>
-      <h3>{mode === 'create' ? 'Nuovo server MCP' : `Modifica "${initial?.name}"`}</h3>
+      <h3>{mode === 'create' ? 'New MCP server' : `MCP server "${initial?.name}"`}</h3>
       {error && <p className="error">{error}</p>}
 
       <div className="field">
-        <label>Nome</label>
+        <label>Name</label>
         <input
           required
           disabled={mode === 'edit'}
@@ -95,12 +95,12 @@ function McpServerForm({
       </div>
 
       <div className="field">
-        <label>Comando</label>
+        <label>Command</label>
         <input
           required
           value={state.command}
           onChange={(e) => update({ command: e.target.value })}
-          placeholder="e.g. python3, oppure il path assoluto di un binario"
+          placeholder="e.g. python3, or an absolute path to a binary"
         />
       </div>
 
@@ -115,15 +115,15 @@ function McpServerForm({
       <div className="form-actions">
         {owner && (
           <button type="submit" disabled={saving}>
-            {saving ? 'Salvataggio…' : 'Salva'}
+            {saving ? 'Saving…' : 'Save server'}
           </button>
         )}
         <button type="button" className="btn-secondary" onClick={onCancel}>
-          {owner ? 'Annulla' : 'Chiudi'}
+          {owner ? 'Cancel' : 'Close'}
         </button>
         {owner && mode === 'edit' && (
           <button type="button" className="btn-danger" onClick={handleDelete} disabled={deleting}>
-            {deleting ? 'Elimino…' : 'Elimina'}
+            {deleting ? 'Deleting…' : 'Delete server'}
           </button>
         )}
       </div>
@@ -173,18 +173,16 @@ export function McpServersPanel({ onChanged }: Props) {
   return (
     <section className="mcp-panel">
       <div className="mcp-panel__header">
-        <h2>Server MCP</h2>
+        <h2>MCP servers</h2>
         {owner && selection.kind === 'none' && (
           <button type="button" className="btn-link" onClick={() => setSelection({ kind: 'create' })}>
-            + nuovo server
+            + Add server
           </button>
         )}
       </div>
       <p className="mcp-panel__hint">
-        Ogni tool <code>mcp:&lt;nome&gt;</code> che vedi nell'editor dei tool qui sopra viene da uno di questi
-        server, lanciato come processo locale al momento in cui serve. <strong>Nota di sicurezza:</strong> comando
-        e argomenti che scrivi qui vengono eseguiti per davvero sulle macchine su cui girano il backend e il worker
-        vocale. Per questo, quando è impostata una password, solo il proprietario può aggiungerli o modificarli.
+        Each server adds a tool named <code>mcp:&lt;name&gt;</code>. The command runs as a process on the servers
+        that host this app, which is why only the owner can add or change one.
       </p>
 
       {error && <p className="error">{error}</p>}
@@ -196,8 +194,8 @@ export function McpServersPanel({ onChanged }: Props) {
           <table className="dashboard__table">
             <thead>
               <tr>
-                <th>Tool id</th>
-                <th>Comando</th>
+                <th>Tool</th>
+                <th>Command</th>
                 <th>Args</th>
                 <th></th>
               </tr>
@@ -220,7 +218,7 @@ export function McpServersPanel({ onChanged }: Props) {
                       className="btn-link"
                       onClick={() => setSelection({ kind: 'edit', name: s.name })}
                     >
-                      modifica
+                      {owner ? 'Edit' : 'View'}
                     </button>
                   </td>
                 </tr>
@@ -228,7 +226,7 @@ export function McpServersPanel({ onChanged }: Props) {
               {servers.length === 0 && (
                 <tr>
                   <td colSpan={4} className="dashboard__empty">
-                    Nessun server MCP configurato.
+                    No MCP servers yet.
                   </td>
                 </tr>
               )}

@@ -37,7 +37,7 @@ export function KeyValueEditor({ label, values, keyPlaceholder, valuePlaceholder
         </div>
       ))}
       <button type="button" className="btn-link" onClick={add}>
-        + add
+        + Add
       </button>
     </div>
   )

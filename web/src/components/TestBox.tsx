@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { Agent, LlmStatus, TestRouteResult } from '../types'
 import { api, ApiError } from '../api'
 import { flatten } from '../tree'
+import { LevelChip } from './LevelChip'
 import { useOwner } from '../auth'
 
 interface Props {
@@ -55,23 +56,24 @@ export function TestBox({ root }: Props) {
 
   return (
     <div className="test-box">
-      <h2>Try it</h2>
+      <h2>Test with text</h2>
+      <p className="section-lede">Type what a caller might say and see which agent answers, why, and with which tools.</p>
       <form onSubmit={handleSubmit}>
         <div className="field">
-          <label>Utterance</label>
+          <label>Caller says</label>
           <textarea
             rows={2}
             required
             value={utterance}
             onChange={(e) => setUtterance(e.target.value)}
-            placeholder="e.g. quanto costa il roaming in Francia?"
+            placeholder="e.g. quanto costa il roaming in Francia? (the demo agents speak Italian)"
           />
         </div>
         <div className="test-box__row">
           <div className="field">
-            <label>Start from</label>
+            <label>Start from agent</label>
             <select value={startAgentId} onChange={(e) => setStartAgentId(e.target.value)}>
-              <option value="">(root)</option>
+              <option value="">Receptionist (start of the call)</option>
               {flat.map((a) => (
                 <option key={a.id} value={a.id}>
                   {'—'.repeat(a.depth)} {a.name || a.id}
@@ -96,15 +98,15 @@ export function TestBox({ root }: Props) {
           />
           {llm?.real ? (
             <>
-              Usa il provider configurato (<code>{llm.resolved}</code>)
+              Reply with the configured model (<code>{llm.resolved}</code>)
             </>
           ) : llm && llm.requested !== 'fake' ? (
             <>
-              Provider <code>{llm.requested}</code> richiesto ma non disponibile (chiave mancante?): si usa FakeProvider
+              The configured model ({llm.requested}) isn't reachable, so replies are simulated. Routing is real.
             </>
           ) : (
             <>
-              Nessun provider configurato (<code>VOICE_ORCH_PROVIDER</code>): risposte di FakeProvider
+              Replies are simulated (no language model configured). Routing and tools are real.
             </>
           )}
         </label>
@@ -118,23 +120,22 @@ export function TestBox({ root }: Props) {
       {result && (
         <div className="test-result">
           <dl>
-            <dt>Routed to</dt>
+            <dt>Answered by</dt>
             <dd>
-              {result.agent_name} <code>({result.agent_id})</code>
+              {result.agent_name} <code>{result.agent_id}</code>
             </dd>
-            <dt>Resolved by</dt>
-            <dd>{result.resolved_by}</dd>
-            <dt>Eligible agents</dt>
+            <dt>Decided by</dt>
+            <dd>
+              <LevelChip level={result.resolved_by} />
+            </dd>
+            <dt>Candidates</dt>
             <dd>{result.eligible_agents.join(', ') || '—'}</dd>
-            <dt>Handed off</dt>
+            <dt>Handed over</dt>
             <dd>{result.handed_off ? 'yes' : 'no'}</dd>
             <dt>Tools used</dt>
             <dd>{result.tool_ids_used.join(', ') || '—'}</dd>
-            <dt>Provider</dt>
-            <dd>
-              <code>{result.provider}</code>
-              {result.provider === 'FakeProvider' && ' — risposta simulata, non quella di un modello vero'}
-            </dd>
+            <dt>Reply from</dt>
+            <dd>{result.provider === 'FakeProvider' ? 'Simulated (no model)' : <code>{result.provider}</code>}</dd>
             <dt>Reply</dt>
             <dd className="test-result__reply">{result.reply}</dd>
           </dl>

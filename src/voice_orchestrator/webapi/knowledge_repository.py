@@ -51,7 +51,7 @@ class DocumentNotFound(ValueError):
 
 class DocumentInUse(ValueError):
     def __init__(self, name: str, agents: list[str]):
-        super().__init__(f"{name} è usato da: {', '.join(agents)}. Toglilo da quegli agenti prima di eliminarlo.")
+        super().__init__(f"{name} is used by {', '.join(agents)}. Remove it from those agents first.")
         self.agents = agents
 
 
@@ -68,7 +68,7 @@ def normalize_name(raw: str) -> str:
     if not name.lower().endswith(knowledge.ALLOWED_SUFFIXES):
         name = f"{name}.md"
     if ".." in name or not _NAME_RE.match(name):
-        raise InvalidDocument(f"Nome documento non valido: {raw!r}")
+        raise InvalidDocument(f"Not a valid document name: {raw!r}")
     return name
 
 
@@ -187,14 +187,14 @@ def save_document(
 ) -> DocumentInfo:
     name = normalize_name(name)
     if not content.strip():
-        raise InvalidDocument("Il documento è vuoto")
+        raise InvalidDocument("The document is empty")
     data = content.encode("utf-8")
     if len(data) > MAX_DOCUMENT_BYTES:
-        raise InvalidDocument(f"Documento troppo grande ({len(data)} byte, massimo {MAX_DOCUMENT_BYTES})")
+        raise InvalidDocument(f"Document too large ({len(data)} bytes, limit {MAX_DOCUMENT_BYTES})")
     if _read_text(session, name) is not None and not overwrite:
-        raise DocumentExists(f"Esiste già un documento {name!r}")
+        raise DocumentExists(f"A document named {name!r} already exists")
     if not knowledge.chunk_text(content):
-        raise InvalidDocument("Il documento non contiene testo utilizzabile (solo titoli?)")
+        raise InvalidDocument("The document has no usable text (only headings?)")
 
     _write_text(session, name, content)
     row = session.get(KnowledgeDocRow, name) or KnowledgeDocRow(name=name)
@@ -251,7 +251,7 @@ def _is_private_host(host: str) -> bool:
     try:
         infos = socket.getaddrinfo(host, None)
     except OSError as exc:
-        raise UrlFetchFailed(f"Host non risolvibile: {host}") from exc
+        raise UrlFetchFailed(f"Can't resolve host: {host}") from exc
     for info in infos:
         ip = ipaddress.ip_address(info[4][0])
         if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast:
@@ -328,13 +328,13 @@ def fetch_url(url: str) -> tuple[str, str]:
     webhook demo (D14)."""
     parsed = urlparse(url.strip())
     if parsed.scheme not in ("http", "https") or not parsed.hostname:
-        raise UrlFetchFailed("Serve un URL http:// o https:// completo")
+        raise UrlFetchFailed("Enter a full http:// or https:// address")
 
     def _guard(request: httpx.Request) -> None:
         # Runs before every request, redirects included: a public URL that
         # redirects to a private address is refused at that hop.
         if _is_private_host(request.url.host):
-            raise UrlFetchFailed("Indirizzi locali o di rete privata non sono ammessi")
+            raise UrlFetchFailed("Local and private network addresses are not allowed")
 
     try:
         with httpx.Client(
@@ -345,11 +345,11 @@ def fetch_url(url: str) -> tuple[str, str]:
         ) as client:
             response = client.get(url.strip(), headers={"User-Agent": "voice-orchestrator-kb/1.0"})
     except httpx.HTTPError as exc:
-        raise UrlFetchFailed(f"Impossibile scaricare la pagina: {exc}") from exc
+        raise UrlFetchFailed(f"Couldn't download the page: {exc}") from exc
     if response.status_code >= 400:
-        raise UrlFetchFailed(f"La pagina ha risposto {response.status_code}")
+        raise UrlFetchFailed(f"The page answered with status {response.status_code}")
     if len(response.content) > MAX_URL_BYTES:
-        raise UrlFetchFailed(f"Pagina troppo grande ({len(response.content)} byte)")
+        raise UrlFetchFailed(f"Page too large ({len(response.content)} bytes)")
 
     ctype = response.headers.get("content-type", "").lower()
     if "html" in ctype or (not ctype and "<html" in response.text[:500].lower()):
@@ -357,11 +357,11 @@ def fetch_url(url: str) -> tuple[str, str]:
     elif ctype.startswith("text/") or "markdown" in ctype or not ctype:
         title, text = "", response.text
     else:
-        raise UrlFetchFailed(f"Tipo di contenuto non supportato: {ctype or 'sconosciuto'} (solo pagine HTML o testo)")
+        raise UrlFetchFailed(f"Unsupported content type: {ctype or 'unknown'} (only HTML pages and plain text)")
     if not text.strip():
-        raise UrlFetchFailed("Nessun testo leggibile nella pagina")
+        raise UrlFetchFailed("No readable text on the page")
 
     base = title or (parsed.hostname + parsed.path)
     slug = re.sub(r"[^A-Za-z0-9]+", "_", base).strip("_").lower()[:60] or "pagina"
-    heading = f"# {title}\n\nFonte: {url.strip()}\n\n" if title else f"Fonte: {url.strip()}\n\n"
+    heading = f"# {title}\n\nSource: {url.strip()}\n\n" if title else f"Source: {url.strip()}\n\n"
     return f"{slug}.md", heading + text

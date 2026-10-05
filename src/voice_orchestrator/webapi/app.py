@@ -111,7 +111,7 @@ async def owner_only_writes(request: Request, call_next):
     route added later is protected by default rather than by remembering."""
     path = request.url.path
     if path.startswith("/api/") and not auth.visitor_may(request.method, path) and not auth.is_owner(request):
-        return JSONResponse({"detail": "Sola lettura: accedi come proprietario per modificare."}, status_code=401)
+        return JSONResponse({"detail": "Read-only demo: sign in as the owner to make changes."}, status_code=401)
     return await call_next(request)
 
 
@@ -129,7 +129,7 @@ def auth_login(body: LoginIn, request: Request, response: Response) -> dict:
     if not auth.auth_required():
         return {"auth_required": False, "owner": True}
     if not auth.check_password(body.password):
-        raise HTTPException(401, "Password errata")
+        raise HTTPException(401, "Wrong password")
     response.set_cookie(
         auth.COOKIE_NAME,
         auth.make_token(),

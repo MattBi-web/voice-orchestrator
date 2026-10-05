@@ -35,23 +35,23 @@ def get_config(session: Session) -> tuple[list[EvaluationCriterion], list[DataCo
 
 
 def _validate(criteria: list[EvaluationCriterion], items: list[DataCollectionItem]) -> None:
-    for label, ids in (("criterio", [c.id for c in criteria]), ("campo", [d.id for d in items])):
+    for label, ids in (("criterion", [c.id for c in criteria]), ("field", [d.id for d in items])):
         for id_ in ids:
             if not _ID_RE.match(id_):
-                raise InvalidAnalysisConfig(f"Id {label} non valido: {id_!r} (solo lettere, numeri, _ e -)")
+                raise InvalidAnalysisConfig(f"Not a valid {label} ID: {id_!r} (letters, digits, _ and - only)")
         dupes = {i for i in ids if ids.count(i) > 1}
         if dupes:
-            raise InvalidAnalysisConfig(f"Id {label} duplicato: {', '.join(sorted(dupes))}")
+            raise InvalidAnalysisConfig(f"Duplicate {label} ID: {', '.join(sorted(dupes))}")
     for c in criteria:
         if c.kind not in KINDS:
-            raise InvalidAnalysisConfig(f"Tipo di criterio non valido per {c.id!r}: {c.kind!r}")
+            raise InvalidAnalysisConfig(f"Not a valid kind for {c.id!r}: {c.kind!r}")
         if c.kind == KIND_LLM and not c.prompt.strip():
-            raise InvalidAnalysisConfig(f"Il criterio {c.id!r} non ha una descrizione di cosa significa successo")
+            raise InvalidAnalysisConfig(f"Criterion {c.id!r} needs a description of what success means")
         if c.kind in (KIND_TOOL_USED, KIND_TOOL_NOT_USED) and not [e for e in c.expected if e.strip()]:
-            raise InvalidAnalysisConfig(f"Il criterio {c.id!r} deve indicare almeno un tool")
+            raise InvalidAnalysisConfig(f"Criterion {c.id!r} needs at least one tool")
     for d in items:
         if d.type not in DATA_TYPES:
-            raise InvalidAnalysisConfig(f"Tipo non valido per {d.id!r}: {d.type!r}")
+            raise InvalidAnalysisConfig(f"Not a valid type for {d.id!r}: {d.type!r}")
 
 
 def replace_config(session: Session, criteria: list[EvaluationCriterion], items: list[DataCollectionItem]) -> None:

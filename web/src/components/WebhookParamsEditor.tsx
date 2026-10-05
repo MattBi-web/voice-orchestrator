@@ -23,32 +23,31 @@ export function WebhookParamsEditor({ values, onChange }: Props) {
 
   return (
     <div className="field">
-      <label>Parametri</label>
+      <label>Parameters</label>
       <p className="field-hint">
-        Ogni parametro diventa una chiave nel body JSON (o nella query string per GET). "Da slot" legge il valore da{' '}
-        <code>session.slots[...]</code> al momento della chiamata (es. <code>account_number</code>); "Letterale" lo
-        fissa qui una volta per tutte.
+        Each parameter becomes a key in the JSON body (or the query string for GET). "From the call" reads a value
+        collected during the call, such as <code>account_number</code>; "Fixed value" is set here once.
       </p>
       {values.map((p, i) => (
         <div className="list-row webhook-params-row" key={i}>
           <input
-            placeholder="nome parametro"
+            placeholder="Parameter name"
             value={p.name}
             onChange={(e) => update(i, { name: e.target.value })}
           />
           <select value={p.source} onChange={(e) => update(i, { source: e.target.value as WebhookParam['source'] })}>
-            <option value="slot">Da slot</option>
-            <option value="literal">Letterale</option>
+            <option value="slot">From the call</option>
+            <option value="literal">Fixed value</option>
           </select>
           <input
-            placeholder={p.source === 'slot' ? 'nome dello slot' : 'valore fisso'}
+            placeholder={p.source === 'slot' ? 'Call field name' : 'Value'}
             value={p.value}
             onChange={(e) => update(i, { value: e.target.value })}
           />
           <select value={p.type} onChange={(e) => update(i, { type: e.target.value as WebhookParam['type'] })}>
-            <option value="string">testo</option>
-            <option value="number">numero</option>
-            <option value="boolean">booleano</option>
+            <option value="string">text</option>
+            <option value="number">number</option>
+            <option value="boolean">true/false</option>
           </select>
           <button type="button" className="btn-icon" onClick={() => remove(i)} aria-label="Remove param">
             ×
@@ -56,7 +55,7 @@ export function WebhookParamsEditor({ values, onChange }: Props) {
         </div>
       ))}
       <button type="button" className="btn-link" onClick={add}>
-        + add parametro
+        + Add parameter
       </button>
     </div>
   )

@@ -4,6 +4,7 @@ import { api, ApiError } from '../api'
 import { ConversationDetail } from './ConversationDetail'
 import { AnalysisConfigEditor } from './AnalysisConfigEditor'
 import { VerdictChip } from './VerdictChip'
+import { SOURCE_LABELS, formatWhen } from './LevelChip'
 
 type SubView = 'calls' | 'criteria'
 
@@ -36,25 +37,24 @@ export function Conversations({ selectedCallId, onSelectCall }: Props) {
   return (
     <div className="convos">
       <div className="dashboard__toolbar">
-        <h2>Conversazioni</h2>
         <div className="convos__subtabs">
           <button
             type="button"
             className={sub === 'calls' ? 'app__tab app__tab--active' : 'app__tab'}
             onClick={() => setSub('calls')}
           >
-            Chiamate
+            Calls
           </button>
           <button
             type="button"
             className={sub === 'criteria' ? 'app__tab app__tab--active' : 'app__tab'}
             onClick={() => setSub('criteria')}
           >
-            Criteri di valutazione
+            Criteria
           </button>
           {sub === 'calls' && (
             <button type="button" className="btn-secondary" onClick={load}>
-              Aggiorna
+              Refresh
             </button>
           )}
         </div>
@@ -68,8 +68,7 @@ export function Conversations({ selectedCallId, onSelectCall }: Props) {
         <p>Loading…</p>
       ) : calls.length === 0 ? (
         <p className="dashboard__empty">
-          Nessuna chiamata registrata. Prova il box "try it" nell'Agent builder, una sessione <code>chat</code> da CLI o
-          una chiamata dalla tab "Test live (voce)".
+          No calls yet. Start a call, or send a message from the text test under Agents.
         </p>
       ) : (
         <div className="convos__layout">
@@ -82,8 +81,8 @@ export function Conversations({ selectedCallId, onSelectCall }: Props) {
                   onClick={() => onSelectCall(c.call_id)}
                 >
                   <span className="convos__item-top">
-                    <span className={`dashboard__badge dashboard__badge--${c.source}`}>{c.source}</span>
-                    <span className="convos__item-time">{new Date(c.started_at).toLocaleString('it-IT')}</span>
+                    <span className={`dashboard__badge dashboard__badge--${c.source}`}>{SOURCE_LABELS[c.source] ?? c.source}</span>
+                    <span className="convos__item-time">{formatWhen(c.started_at)}</span>
                   </span>
                   <span className="convos__item-agent">{c.final_agent_id ?? '—'}</span>
                   <VerdictChip verdict={c.call_successful} />
@@ -95,7 +94,7 @@ export function Conversations({ selectedCallId, onSelectCall }: Props) {
             {selectedCallId ? (
               <ConversationDetail callId={selectedCallId} onAnalyzed={load} />
             ) : (
-              <p className="app__hint">Seleziona una chiamata a sinistra per vederne trascrizione e analisi.</p>
+              <p className="app__hint">Select a call to see its transcript and evaluation.</p>
             )}
           </div>
         </div>

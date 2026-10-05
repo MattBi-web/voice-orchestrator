@@ -29,7 +29,7 @@ export function ListEditor({ label, values, placeholder, onChange }: Props) {
         </div>
       ))}
       <button type="button" className="btn-link" onClick={add}>
-        + add
+        + Add
       </button>
     </div>
   )

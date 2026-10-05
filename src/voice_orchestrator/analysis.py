@@ -131,32 +131,36 @@ class AnalysisResult:
 # from the UI. Written for the bundled Meridian Telecom demo family.
 DEFAULT_CRITERIA = [
     EvaluationCriterion(
-        id="richiesta_risolta",
-        name="Richiesta risolta",
+        id="request_resolved",
+        name="Request resolved",
         prompt=(
-            "L'agente ha risposto alla richiesta del chiamante con un'informazione concreta, "
-            "senza bisogno di passarlo a un operatore umano."
+            "The agent answered the caller's request with concrete information, "
+            "without needing to hand the call to a human."
         ),
     ),
     EvaluationCriterion(
-        id="agente_corretto",
-        name="Instradata a uno specialista",
-        prompt="La chiamata è passata dall'agente d'ingresso a un agente specializzato.",
+        id="reached_specialist",
+        name="Reached a specialist",
+        prompt="The call moved from the receptionist to a specialist agent.",
         kind=KIND_FINAL_AGENT,
     ),
     EvaluationCriterion(
-        id="senza_operatore",
-        name="Senza operatore umano",
-        prompt="La chiamata si è chiusa senza passaggio a un operatore umano.",
+        id="no_human_handover",
+        name="No human handover",
+        prompt="The call ended without being handed to a human.",
         kind=KIND_TOOL_NOT_USED,
         expected=["transfer_to_human"],
     ),
 ]
 
 DEFAULT_DATA_ITEMS = [
-    DataCollectionItem(id="motivo_chiamata", type="string", description="Il motivo principale della chiamata, in poche parole."),
+    DataCollectionItem(id="call_reason", type="string", description="The main reason for the call, in a few words."),
+    # The demo agents speak Italian: the Italian words are in the description
+    # so the keyless word-overlap fallback can still match a real request.
     DataCollectionItem(
-        id="richiesta_operatore", type="boolean", description="Il chiamante ha chiesto di parlare con un operatore umano."
+        id="asked_for_human",
+        type="boolean",
+        description="The caller asked to speak to a human (in Italian: operatore, persona vera).",
     ),
 ]
 
@@ -164,10 +168,10 @@ DEFAULT_DATA_ITEMS = [
 def format_transcript(turns: list[dict[str, Any]]) -> str:
     lines = []
     for t in turns:
-        who = "Chiamante" if t.get("speaker") == "caller" else f"Agente ({t.get('agent_id') or '?'})"
+        who = "Caller" if t.get("speaker") == "caller" else f"Agent ({t.get('agent_id') or '?'})"
         lines.append(f"{who}: {t.get('text', '')}")
         if t.get("tools"):
-            lines.append(f"  [tool usati: {', '.join(t['tools'])}]")
+            lines.append(f"  [tools used: {', '.join(t['tools'])}]")
     return "\n".join(lines)
 
 
@@ -181,9 +185,9 @@ def analyze(
         return AnalysisResult(
             method="heuristic" if isinstance(provider, FakeProvider) else "llm",
             provider=type(provider).__name__,
-            summary="Nessuna trascrizione salvata per questa chiamata (registrata prima che le trascrizioni esistessero).",
-            criteria=[CriterionResult(c.id, RESULT_UNKNOWN, "Nessuna trascrizione da valutare.") for c in criteria],
-            data=[DataCollectionResult(d.id, None, "Nessuna trascrizione da cui estrarre.") for d in data_items],
+            summary="No transcript was saved for this call (recorded before transcripts existed).",
+            criteria=[CriterionResult(c.id, RESULT_UNKNOWN, "No transcript to evaluate.") for c in criteria],
+            data=[DataCollectionResult(d.id, None, "No transcript to extract from.") for d in data_items],
         )
     if isinstance(provider, FakeProvider):
         result = _heuristic(turns, criteria, data_items)
@@ -208,23 +212,23 @@ def _structural(turns: list[dict[str, Any]], c: EvaluationCriterion) -> Criterio
     agent_ids = [t.get("agent_id") for t in turns if t.get("speaker") == "agent" and t.get("agent_id")]
     used = {tool for t in turns for tool in (t.get("tools") or [])}
     expected = [e for e in c.expected if e]
-    prefix = "Controllo strutturale: "
+    prefix = "Fact check: "
 
     if c.kind == KIND_FINAL_AGENT:
         if not agent_ids:
-            return CriterionResult(c.id, RESULT_UNKNOWN, prefix + "nessuna risposta di agente nella trascrizione.")
+            return CriterionResult(c.id, RESULT_UNKNOWN, prefix + "no agent reply in the transcript.")
         final = agent_ids[-1]
         if expected:
             ok = final in expected
             return CriterionResult(
                 c.id,
                 RESULT_SUCCESS if ok else RESULT_FAILURE,
-                prefix + f"agente finale {final!r}, attesi: {', '.join(expected)}.",
+                prefix + f"call ended with {final!r}, expected {', '.join(expected)}.",
             )
         entry = agent_ids[0]
         ok = final != entry
-        why = f"passata da {entry!r} a {final!r}." if ok else f"rimasta sull'agente d'ingresso {entry!r}."
-        return CriterionResult(c.id, RESULT_SUCCESS if ok else RESULT_FAILURE, prefix + "chiamata " + why)
+        why = f"moved from {entry!r} to {final!r}." if ok else f"stayed with the first agent, {entry!r}."
+        return CriterionResult(c.id, RESULT_SUCCESS if ok else RESULT_FAILURE, prefix + "call " + why)
 
     if c.kind in (KIND_TOOL_USED, KIND_TOOL_NOT_USED):
         hit = sorted(used & set(expected))
@@ -239,7 +243,7 @@ def _structural(turns: list[dict[str, Any]], c: EvaluationCriterion) -> Criterio
             prefix + f"tool {', '.join(expected)} — usati in questa chiamata: {found}.",
         )
 
-    return CriterionResult(c.id, RESULT_UNKNOWN, f"Tipo di criterio sconosciuto: {c.kind!r}.")
+    return CriterionResult(c.id, RESULT_UNKNOWN, f"Unknown criterion kind: {c.kind!r}.")
 
 
 # ---- heuristic (zero API keys) ----
@@ -261,8 +265,8 @@ def _heuristic(
         CriterionResult(
             c.id,
             RESULT_UNKNOWN,
-            "Non valutato: un criterio in linguaggio naturale richiede un provider LLM "
-            "(VOICE_ORCH_PROVIDER). Senza chiavi sono affidabili solo i criteri strutturali.",
+            "Not evaluated: a criterion written in plain language needs a language model "
+            "(VOICE_ORCH_PROVIDER). Without one, only fact-check criteria get a verdict.",
         )
         for c in criteria
     ]
@@ -274,38 +278,38 @@ def _heuristic(
         best_score, best_turn = max(scored, key=lambda s: s[0]) if scored else (0, None)
         if d.type == "boolean":
             value = best_score > 0
-            why = "una frase del chiamante contiene parole della descrizione" if value else "nessuna frase del chiamante corrisponde"
+            why = "a caller sentence shares words with the description" if value else "no caller sentence matches"
         elif d.type in ("integer", "number"):
             source = best_turn if best_score > 0 else None
             nums = re.findall(r"-?\d+(?:[.,]\d+)?", source.get("text", "")) if source else []
             value = (int(float(nums[0].replace(",", "."))) if d.type == "integer" else float(nums[0].replace(",", "."))) if nums else None
-            why = "primo numero nella frase del chiamante più pertinente" if nums else "nessun numero trovato"
+            why = "first number in the closest caller sentence" if nums else "no number found"
         else:
             if best_score > 0:
-                value, why = best_turn.get("text", "")[:200], "frase del chiamante più pertinente alla descrizione"
+                value, why = best_turn.get("text", "")[:200], "caller sentence closest to the description"
             elif caller_turns:
-                value, why = caller_turns[0].get("text", "")[:200], "nessuna corrispondenza: uso la prima frase del chiamante"
+                value, why = caller_turns[0].get("text", "")[:200], "no match: using the first caller sentence"
             else:
-                value, why = None, "nessuna frase del chiamante"
-        data_results.append(DataCollectionResult(d.id, value, f"Euristica: {why}."))
+                value, why = None, "no caller sentence"
+        data_results.append(DataCollectionResult(d.id, value, f"Keyword match: {why}."))
 
     agents = [t.get("agent_id") for t in turns if t.get("speaker") == "agent" and t.get("agent_id")]
     # Only facts here — the "this is a heuristic" caveat is the method tag's
     # job (and the UI's), not something to repeat inside every summary.
-    summary = f"{len(caller_turns)} turni del chiamante; agenti coinvolti: {', '.join(dict.fromkeys(agents)) or 'nessuno'}."
+    summary = f"{len(caller_turns)} caller turns; agents involved: {', '.join(dict.fromkeys(agents)) or 'none'}."
     return AnalysisResult(method="heuristic", provider="FakeProvider", summary=summary, criteria=criteria_results, data=data_results)
 
 
 # ---- real LLM ----
 
 _SYSTEM = (
-    "Sei un analista di qualità per un call center. Valuti la trascrizione di una chiamata. "
-    "Rispondi SOLO con un oggetto JSON valido, senza testo prima o dopo, con questa forma: "
-    '{"summary": "<2 frasi>", '
-    '"criteria": [{"id": "<id>", "result": "success|failure|unknown", "rationale": "<1 frase>"}], '
-    '"data": [{"id": "<id>", "value": <valore o null>, "rationale": "<1 frase>"}]}. '
-    "Usa unknown quando la trascrizione non basta per decidere. Non inventare dati: se un campo non "
-    "emerge dalla chiamata, value è null."
+    "You are a call-center quality analyst evaluating a call transcript (the call itself may be in "
+    "Italian; write your answer in English). Reply with ONLY a valid JSON object, no text before or "
+    'after, shaped like: {"summary": "<2 sentences>", '
+    '"criteria": [{"id": "<id>", "result": "success|failure|unknown", "rationale": "<1 sentence>"}], '
+    '"data": [{"id": "<id>", "value": <value or null>, "rationale": "<1 sentence>"}]}. '
+    "Use unknown when the transcript isn't enough to decide. Don't invent data: if a field doesn't "
+    "come up in the call, its value is null."
 )
 
 
@@ -315,12 +319,12 @@ def _llm(
     data_items: list[DataCollectionItem],
     provider: LLMProvider,
 ) -> AnalysisResult:
-    crit_block = "\n".join(f'- id "{c.id}" ({c.name}): {c.prompt}' for c in criteria) or "(nessuno)"
-    data_block = "\n".join(f'- id "{d.id}" (tipo {d.type}): {d.description}' for d in data_items) or "(nessuno)"
+    crit_block = "\n".join(f'- id "{c.id}" ({c.name}): {c.prompt}' for c in criteria) or "(none)"
+    data_block = "\n".join(f'- id "{d.id}" (type {d.type}): {d.description}' for d in data_items) or "(none)"
     user = (
-        f"Criteri di successo:\n{crit_block}\n\n"
-        f"Dati da estrarre:\n{data_block}\n\n"
-        f"Trascrizione:\n{format_transcript(turns)}"
+        f"Success criteria:\n{crit_block}\n\n"
+        f"Data to extract:\n{data_block}\n\n"
+        f"Transcript:\n{format_transcript(turns)}"
     )
     name = type(provider).__name__
     try:
@@ -332,9 +336,9 @@ def _llm(
         return AnalysisResult(
             method="llm",
             provider=name,
-            summary=f"Analisi LLM fallita: {exc}",
-            criteria=[CriterionResult(c.id, RESULT_UNKNOWN, "Analisi fallita.") for c in criteria],
-            data=[DataCollectionResult(d.id, None, "Analisi fallita.") for d in data_items],
+            summary=f"Model evaluation failed: {exc}",
+            criteria=[CriterionResult(c.id, RESULT_UNKNOWN, "Evaluation failed.") for c in criteria],
+            data=[DataCollectionResult(d.id, None, "Evaluation failed.") for d in data_items],
         )
 
     by_crit = {str(c.get("id")): c for c in parsed.get("criteria", []) if isinstance(c, dict)}
@@ -359,10 +363,10 @@ def _parse_json_object(raw: str) -> dict[str, Any]:
     the whole reply to be pure JSON."""
     start, end = raw.find("{"), raw.rfind("}")
     if start == -1 or end <= start:
-        raise ValueError("nessun oggetto JSON nella risposta del modello")
+        raise ValueError("no JSON object in the model's reply")
     data = json.loads(raw[start : end + 1])
     if not isinstance(data, dict):
-        raise ValueError("la risposta del modello non è un oggetto JSON")
+        raise ValueError("the model's reply is not a JSON object")
     return data
 
 

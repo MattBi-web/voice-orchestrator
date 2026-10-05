@@ -158,16 +158,16 @@ export function AgentForm({ mode, initial, parentId, parentName, availableTools,
       <fieldset className="ro-fieldset" disabled={!owner}>
       <h2>
         {mode === 'create'
-          ? `New agent under "${parentName ?? parentId}"`
+          ? `New specialist under ${parentName ?? parentId}`
           : owner
-            ? `Edit "${initial?.id}"`
-            : `Agente "${initial?.id}"`}
+            ? initial?.name || initial?.id
+            : initial?.name || initial?.id}
       </h2>
       {error && <p className="error">{error}</p>}
 
       {mode === 'create' && (
         <div className="field">
-          <label>Id</label>
+          <label>ID</label>
           <input
             required
             value={state.id}
@@ -188,7 +188,7 @@ export function AgentForm({ mode, initial, parentId, parentName, availableTools,
           rows={2}
           value={state.description}
           onChange={(e) => update({ description: e.target.value })}
-          placeholder="Shown to the LLM-fallback classifier when routing is ambiguous"
+          placeholder="What this agent handles. The router reads it when keywords are not enough."
         />
       </div>
 
@@ -204,12 +204,12 @@ export function AgentForm({ mode, initial, parentId, parentName, availableTools,
       <EligibilityBuilder value={state.eligibility} onChange={(eligibility) => update({ eligibility })} />
 
       <div className="field">
-        <label>First message (blocco 2)</label>
+        <label>First message</label>
         <textarea
           rows={2}
           value={state.first_message}
           onChange={(e) => update({ first_message: e.target.value })}
-          placeholder="Cosa dice questo agente prima di sentire il chiamante — vuoto = resta in silenzio"
+          placeholder="What this agent says before the caller speaks. Leave empty to stay silent."
         />
       </div>
 
@@ -232,7 +232,7 @@ export function AgentForm({ mode, initial, parentId, parentName, availableTools,
       />
 
       <ListEditor
-        label="Triggers (Level-2 keywords)"
+        label="Keywords that route the call here"
         values={state.triggers}
         placeholder="e.g. roaming"
         onChange={(triggers) => update({ triggers })}
@@ -246,7 +246,7 @@ export function AgentForm({ mode, initial, parentId, parentName, availableTools,
       <div className="form-actions">
         {owner && (
           <button type="submit" disabled={saving}>
-            {saving ? 'Saving…' : 'Save'}
+            {saving ? 'Saving…' : mode === 'create' ? 'Create agent' : 'Save changes'}
           </button>
         )}
         <button type="button" className="btn-secondary" onClick={onCancel}>
@@ -254,7 +254,7 @@ export function AgentForm({ mode, initial, parentId, parentName, availableTools,
         </button>
         {owner && mode === 'edit' && (
           <button type="button" className="btn-danger" onClick={handleDelete} disabled={deleting}>
-            {deleting ? 'Deleting…' : 'Delete'}
+            {deleting ? 'Deleting…' : 'Delete agent'}
           </button>
         )}
       </div>

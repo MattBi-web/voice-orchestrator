@@ -34,7 +34,7 @@ export function ToolsEditor({ values, availableTools, onChange }: Props) {
             ))}
           </select>
           <input
-            placeholder="condition (optional), e.g. channel == 'voice'"
+            placeholder="Only when… (optional), e.g. channel == 'voice'"
             value={t.condition}
             onChange={(e) => update(i, { condition: e.target.value })}
           />
@@ -44,7 +44,7 @@ export function ToolsEditor({ values, availableTools, onChange }: Props) {
         </div>
       ))}
       <button type="button" className="btn-link" onClick={add} disabled={availableTools.length === 0}>
-        + add tool
+        + Add tool
       </button>
     </div>
   )

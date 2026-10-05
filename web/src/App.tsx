@@ -1,36 +1,95 @@
-import { lazy, Suspense, useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState, type ReactNode } from 'react'
 import type { Agent } from './types'
 import { api, ApiError } from './api'
 import { findAgent } from './tree'
 import { Tree } from './components/Tree'
 import { AgentForm } from './components/AgentForm'
 import { TestBox } from './components/TestBox'
-import { McpServersPanel } from './components/McpServersPanel'
-import { WebhookToolsPanel } from './components/WebhookToolsPanel'
 import { AuthBar } from './components/AuthBar'
+import { Icon, type IconName } from './components/Icon'
 import { AuthContext, type AuthState } from './auth'
 import './App.css'
 
-// D9: every tab except the agent builder's tree view loads on demand. The
-// two heavy dependencies sit behind these — livekit-client (voice console)
-// and recharts (dashboard) — so the first page load no longer pays for them.
+// D9: everything except the agents view loads on demand. The two heavy
+// dependencies sit behind these — livekit-client (call) and recharts
+// (analytics) — so the first page load doesn't pay for them.
 const AgentGraph = lazy(() => import('./components/AgentGraph').then((m) => ({ default: m.AgentGraph })))
 const VoiceTestConsole = lazy(() => import('./components/VoiceTestConsole').then((m) => ({ default: m.VoiceTestConsole })))
 const Dashboard = lazy(() => import('./components/Dashboard').then((m) => ({ default: m.Dashboard })))
 const Conversations = lazy(() => import('./components/Conversations').then((m) => ({ default: m.Conversations })))
 const KnowledgeBase = lazy(() => import('./components/KnowledgeBase').then((m) => ({ default: m.KnowledgeBase })))
+const ToolsPage = lazy(() => import('./components/ToolsPage').then((m) => ({ default: m.ToolsPage })))
 
-type Selection =
-  | { kind: 'none' }
-  | { kind: 'edit'; agentId: string }
-  | { kind: 'create'; parentId: string }
+type Selection = { kind: 'none' } | { kind: 'edit'; agentId: string } | { kind: 'create'; parentId: string }
 
-type View = 'builder' | 'knowledge' | 'voice' | 'dashboard' | 'conversations'
-type BuilderSubview = 'tree' | 'graph'
+type View = 'agents' | 'knowledge' | 'tools' | 'call' | 'calls' | 'analytics'
+type AgentsSubview = 'tree' | 'graph'
+
+const NAV: { view: View; label: string; icon: IconName }[] = [
+  { view: 'agents', label: 'Agents', icon: 'agents' },
+  { view: 'knowledge', label: 'Knowledge', icon: 'book' },
+  { view: 'tools', label: 'Tools', icon: 'plug' },
+  { view: 'calls', label: 'Calls', icon: 'list' },
+  { view: 'analytics', label: 'Analytics', icon: 'chart' },
+]
+
+const PAGES: Record<View, { title: string; lede: string }> = {
+  agents: {
+    title: 'Agents',
+    lede:
+      'One phone line, a family of specialists. A three-level router — gate, pattern, LLM fallback — decides which agent answers each turn.',
+  },
+  knowledge: {
+    title: 'Knowledge',
+    lede: 'Documents agents answer from. Add text, a file or a web page, and check which passages a question retrieves.',
+  },
+  tools: {
+    title: 'Tools',
+    lede: 'Actions agents can take mid-call: built-in ones, HTTP webhooks and MCP servers.',
+  },
+  call: {
+    title: 'Start a call',
+    lede: 'Talk to the agent family from your browser. The receptionist answers and hands you over to a specialist.',
+  },
+  calls: {
+    title: 'Calls',
+    lede: 'Every call turn by turn: which agent answered, which router level decided it, which tools ran.',
+  },
+  analytics: {
+    title: 'Analytics',
+    lede: 'Call volume, how the router resolves turns, tool usage and evaluation results.',
+  },
+}
+
+function PageHead({ view, actions }: { view: View; actions?: ReactNode }) {
+  const page = PAGES[view]
+  return (
+    <header className="page__head">
+      <div>
+        <h1>{page.title}</h1>
+        <p className="page__lede">{page.lede}</p>
+      </div>
+      {actions && <div className="page__actions">{actions}</div>}
+    </header>
+  )
+}
+
+function BrandMark() {
+  // One line in, three routes out — colored by router level.
+  return (
+    <svg className="nav__mark" viewBox="0 0 24 24" fill="none" strokeWidth="2.2" strokeLinecap="round" aria-hidden>
+      <path d="M3 12h6" stroke="var(--ink)" />
+      <path d="M9 12c3 0 4-6 8-6h4" stroke="var(--gate)" />
+      <path d="M9 12h12" stroke="var(--pattern)" />
+      <path d="M9 12c3 0 4 6 8 6h4" stroke="var(--llm)" />
+      <circle cx="9" cy="12" r="2" fill="var(--ink)" stroke="none" />
+    </svg>
+  )
+}
 
 function App() {
-  const [view, setView] = useState<View>('builder')
-  const [builderSubview, setBuilderSubview] = useState<BuilderSubview>('tree')
+  const [view, setView] = useState<View>('agents')
+  const [agentsSubview, setAgentsSubview] = useState<AgentsSubview>('tree')
   const [selectedCallId, setSelectedCallId] = useState<string | null>(null)
   const [root, setRoot] = useState<Agent | null>(null)
   const [tools, setTools] = useState<string[]>([])
@@ -70,17 +129,11 @@ function App() {
     reload()
   }
 
-  const handleDeleted = () => {
-    setSelection({ kind: 'none' })
-    reload()
-  }
-
   const handleExport = async () => {
     if (
       !confirm(
-        'Sovrascrive config/agents.yaml — il file che chat/route/eval da CLI e il worker vocale leggono — ' +
-          'con la famiglia attuale del builder. Il file è tracciato da git: se hai modifiche lì non committate, ' +
-          'questa azione le perde. Continuare?'
+        'Overwrite config/agents.yaml with the current family? The CLI reads that file. It is tracked by git: ' +
+          'uncommitted changes in it will be lost.',
       )
     ) {
       return
@@ -90,7 +143,7 @@ function App() {
     setError(null)
     try {
       const result = await api.exportAgents()
-      setExportResult(`Esportati ${result.agent_count} agenti in ${result.path}.`)
+      setExportResult(`Exported ${result.agent_count} agents to agents.yaml.`)
     } catch (err) {
       setError(err instanceof ApiError ? err.message : String(err))
     } finally {
@@ -98,184 +151,168 @@ function App() {
     }
   }
 
-  const selectedAgent =
-    selection.kind === 'edit' ? findAgent(root, selection.agentId) : undefined
-  const parentAgent =
-    selection.kind === 'create' ? findAgent(root, selection.parentId) : undefined
+  const selectedAgent = selection.kind === 'edit' ? findAgent(root, selection.agentId) : undefined
+  const parentAgent = selection.kind === 'create' ? findAgent(root, selection.parentId) : undefined
+
+  const go = (next: View) => {
+    setView(next)
+    window.scrollTo({ top: 0 })
+  }
+
+  const agentsActions = (
+    <>
+      <div className="app__subtabs" role="tablist" aria-label="Agents view">
+        {(['tree', 'graph'] as AgentsSubview[]).map((v) => (
+          <button
+            key={v}
+            type="button"
+            role="tab"
+            aria-selected={agentsSubview === v}
+            className={agentsSubview === v ? 'app__tab app__tab--active' : 'app__tab'}
+            onClick={() => setAgentsSubview(v)}
+          >
+            {v === 'tree' ? 'List' : 'Graph'}
+          </button>
+        ))}
+      </div>
+      {auth.owner && (
+        <div className="app__export">
+          {exportResult && <span className="app__export-result">{exportResult}</span>}
+          <button type="button" className="btn-secondary" onClick={handleExport} disabled={exporting}>
+            {exporting ? 'Exporting…' : 'Export YAML'}
+          </button>
+        </div>
+      )}
+    </>
+  )
 
   return (
     <AuthContext.Provider value={auth}>
-    <div className="app">
-      <header className="app__header">
-        <div className="app__titlebar">
-          <h1>voice-orchestrator — agent builder</h1>
-          <AuthBar auth={auth} onChange={setAuth} />
-        </div>
-        <p className="app__subtitle">
-          Una famiglia di voice agent con router a 3 livelli: configura gli agenti, provali in testo e in voce, guarda
-          conversazioni e analisi.
-        </p>
-        <nav className="app__tabs">
+      <div className="shell">
+        <nav className="nav" aria-label="Main">
+          <div className="nav__brand">
+            <BrandMark />
+            Voice Orchestrator
+          </div>
           <button
             type="button"
-            className={view === 'builder' ? 'app__tab app__tab--active' : 'app__tab'}
-            onClick={() => setView('builder')}
+            className="btn-primary nav__call"
+            aria-current={view === 'call' ? 'page' : undefined}
+            onClick={() => go('call')}
           >
-            Agent builder
+            <Icon name="phone" />
+            Start a call
           </button>
-          <button
-            type="button"
-            className={view === 'knowledge' ? 'app__tab app__tab--active' : 'app__tab'}
-            onClick={() => setView('knowledge')}
-          >
-            Knowledge base
-          </button>
-          <button
-            type="button"
-            className={view === 'voice' ? 'app__tab app__tab--active' : 'app__tab'}
-            onClick={() => setView('voice')}
-          >
-            Test live (voce)
-          </button>
-          <button
-            type="button"
-            className={view === 'dashboard' ? 'app__tab app__tab--active' : 'app__tab'}
-            onClick={() => setView('dashboard')}
-          >
-            Dashboard
-          </button>
-          <button
-            type="button"
-            className={view === 'conversations' ? 'app__tab app__tab--active' : 'app__tab'}
-            onClick={() => setView('conversations')}
-          >
-            Conversazioni
-          </button>
+          {NAV.map((item) => (
+            <button
+              key={item.view}
+              type="button"
+              className="nav__link"
+              aria-current={view === item.view ? 'page' : undefined}
+              onClick={() => go(item.view)}
+            >
+              <Icon name={item.icon} />
+              {item.label}
+            </button>
+          ))}
+          <div className="nav__foot">
+            <AuthBar auth={auth} onChange={setAuth} />
+          </div>
         </nav>
-      </header>
 
-      {auth.authRequired && !auth.owner && (
-        <p className="app__readonly">
-          Demo in sola lettura: puoi esplorare agenti, knowledge base, conversazioni e dashboard, provare il box "Try it"
-          e chiamare l'agente dalla tab "Test live (voce)". Le modifiche sono riservate al proprietario.
-        </p>
-      )}
-      {error && <p className="error app__error">{error}</p>}
+        <div className="page">
+          {auth.authRequired && !auth.owner && (
+            <p className="app__readonly">
+              You're viewing a read-only demo. Explore the agents, start a call, and try the text test. Sign in to make
+              changes.
+            </p>
+          )}
+          {error && <p className="error app__error">{error}</p>}
 
-      <Suspense fallback={<p className="app__hint">Loading…</p>}>
-      {view === 'knowledge' ? (
-        <KnowledgeBase root={root} />
-      ) : view === 'voice' ? (
-        <VoiceTestConsole />
-      ) : view === 'dashboard' ? (
-        <Dashboard
-          onOpenCall={(callId) => {
-            setSelectedCallId(callId)
-            setView('conversations')
-          }}
-        />
-      ) : view === 'conversations' ? (
-        <Conversations selectedCallId={selectedCallId} onSelectCall={setSelectedCallId} />
-      ) : loading ? (
-        <p>Loading…</p>
-      ) : (
-        <div className={builderSubview === 'graph' ? 'app__layout app__layout--graph' : 'app__layout'}>
-          <div className="app__builder-topbar">
-            <div className="app__subtabs">
-              <button
-                type="button"
-                className={builderSubview === 'tree' ? 'app__tab app__tab--active' : 'app__tab'}
-                onClick={() => setBuilderSubview('tree')}
-              >
-                Albero
-              </button>
-              <button
-                type="button"
-                className={builderSubview === 'graph' ? 'app__tab app__tab--active' : 'app__tab'}
-                onClick={() => setBuilderSubview('graph')}
-              >
-                Grafo
-              </button>
-            </div>
-            {auth.owner && (
-              <div className="app__export">
-                <button type="button" className="btn-link" onClick={handleExport} disabled={exporting}>
-                  {exporting ? 'Esporto…' : '↓ Esporta verso agents.yaml'}
-                </button>
-                {exportResult && <p className="app__export-result">{exportResult}</p>}
+          <PageHead view={view} actions={view === 'agents' ? agentsActions : undefined} />
+
+          <Suspense fallback={<p className="app__hint">Loading…</p>}>
+            {view === 'knowledge' ? (
+              <KnowledgeBase root={root} />
+            ) : view === 'tools' ? (
+              <ToolsPage onChanged={reload} />
+            ) : view === 'call' ? (
+              <VoiceTestConsole />
+            ) : view === 'analytics' ? (
+              <Dashboard
+                onOpenCall={(callId) => {
+                  setSelectedCallId(callId)
+                  go('calls')
+                }}
+              />
+            ) : view === 'calls' ? (
+              <Conversations selectedCallId={selectedCallId} onSelectCall={setSelectedCallId} />
+            ) : loading ? (
+              <p className="app__hint">Loading…</p>
+            ) : (
+              <div className={agentsSubview === 'graph' ? 'app__layout app__layout--graph' : 'app__layout'}>
+                {agentsSubview === 'graph' && (
+                  <div className="app__graph-panel">
+                    <AgentGraph
+                      root={root}
+                      selectedId={selection.kind === 'edit' ? selection.agentId : null}
+                      onSelect={(id) => setSelection({ kind: 'edit', agentId: id })}
+                      onAddChild={(parentId) => setSelection({ kind: 'create', parentId })}
+                      onChanged={reload}
+                    />
+                  </div>
+                )}
+
+                {agentsSubview === 'tree' && (
+                  <aside className="app__sidebar">
+                    <Tree
+                      root={root}
+                      selectedId={selection.kind === 'edit' ? selection.agentId : null}
+                      onSelect={(id) => setSelection({ kind: 'edit', agentId: id })}
+                      onAddChild={(parentId) => setSelection({ kind: 'create', parentId })}
+                    />
+                  </aside>
+                )}
+
+                <main className="app__main">
+                  {selection.kind === 'edit' && selectedAgent && (
+                    <AgentForm
+                      mode="edit"
+                      initial={selectedAgent}
+                      availableTools={tools}
+                      onCancel={() => setSelection({ kind: 'none' })}
+                      onSaved={handleSaved}
+                      onDeleted={handleSaved}
+                    />
+                  )}
+
+                  {selection.kind === 'create' && (
+                    <AgentForm
+                      mode="create"
+                      parentId={selection.parentId}
+                      parentName={parentAgent?.name}
+                      availableTools={tools}
+                      onCancel={() => setSelection({ kind: 'none' })}
+                      onSaved={handleSaved}
+                      onDeleted={handleSaved}
+                    />
+                  )}
+
+                  {selection.kind === 'none' && (
+                    <p className="app__hint">
+                      {auth.owner
+                        ? 'Select an agent to edit it, or use + to add a specialist under it.'
+                        : 'Select an agent to see how it is configured.'}
+                    </p>
+                  )}
+
+                  <TestBox root={root} />
+                </main>
               </div>
             )}
-          </div>
-
-          {builderSubview === 'graph' && (
-            <div className="app__graph-panel">
-              <AgentGraph
-                root={root}
-                selectedId={selection.kind === 'edit' ? selection.agentId : null}
-                onSelect={(id) => setSelection({ kind: 'edit', agentId: id })}
-                onAddChild={(parentId) => setSelection({ kind: 'create', parentId })}
-                onChanged={reload}
-              />
-            </div>
-          )}
-
-          {builderSubview === 'tree' && (
-            <aside className="app__sidebar">
-              <Tree
-                root={root}
-                selectedId={selection.kind === 'edit' ? selection.agentId : null}
-                onSelect={(id) => setSelection({ kind: 'edit', agentId: id })}
-                onAddChild={(parentId) => setSelection({ kind: 'create', parentId })}
-              />
-              {auth.owner && (
-                <p className="app__export-hint">
-                  "Esporta" scrive la famiglia attuale su agents.yaml, per la CLI. Il worker vocale online legge
-                  direttamente il database: lì ogni salvataggio è già attivo dalla chiamata successiva.
-                </p>
-              )}
-            </aside>
-          )}
-
-          <main className="app__main">
-            {selection.kind === 'edit' && selectedAgent && (
-              <AgentForm
-                mode="edit"
-                initial={selectedAgent}
-                availableTools={tools}
-                onCancel={() => setSelection({ kind: 'none' })}
-                onSaved={handleSaved}
-                onDeleted={handleDeleted}
-              />
-            )}
-
-            {selection.kind === 'create' && (
-              <AgentForm
-                mode="create"
-                parentId={selection.parentId}
-                parentName={parentAgent?.name}
-                availableTools={tools}
-                onCancel={() => setSelection({ kind: 'none' })}
-                onSaved={handleSaved}
-                onDeleted={handleDeleted}
-              />
-            )}
-
-            {selection.kind === 'none' && (
-              <p className="app__hint">
-                Select an agent on the left to edit it, or click its{' '}
-                <strong>+</strong> to add a child.
-              </p>
-            )}
-
-            <TestBox root={root} />
-
-            <McpServersPanel onChanged={reload} />
-            <WebhookToolsPanel onChanged={reload} />
-          </main>
+          </Suspense>
         </div>
-      )}
-      </Suspense>
-    </div>
+      </div>
     </AuthContext.Provider>
   )
 }

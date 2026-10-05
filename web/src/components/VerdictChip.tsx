@@ -5,14 +5,14 @@ import type { Verdict } from '../types'
 // charts follow). The label stays in the normal text colour; only the icon
 // carries the status hue.
 const META: Record<Verdict, { icon: string; label: string; className: string }> = {
-  success: { icon: '✓', label: 'Successo', className: 'verdict--success' },
-  failure: { icon: '✕', label: 'Fallito', className: 'verdict--failure' },
-  unknown: { icon: '?', label: 'Incerto', className: 'verdict--unknown' },
+  success: { icon: '✓', label: 'Passed', className: 'verdict--success' },
+  failure: { icon: '✕', label: 'Failed', className: 'verdict--failure' },
+  unknown: { icon: '?', label: 'Unclear', className: 'verdict--unknown' },
 }
 
 export function VerdictChip({ verdict }: { verdict: Verdict | null | undefined }) {
   if (!verdict) {
-    return <span className="verdict verdict--none">non analizzata</span>
+    return <span className="verdict verdict--none">Not evaluated</span>
   }
   const m = META[verdict]
   return (

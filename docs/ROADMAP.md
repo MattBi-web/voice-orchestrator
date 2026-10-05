@@ -3,7 +3,7 @@
 Documento di lavoro: tiene traccia di dove siamo, dove vogliamo arrivare e perché.
 Si aggiorna a ogni feature, nello stesso commit del codice.
 
-Ultimo aggiornamento: 2026-10-05 (blocco 6 pronto per il deploy)
+Ultimo aggiornamento: 2026-10-05 (blocco 7, fase A)
 
 ---
 
@@ -279,6 +279,38 @@ aggiornata nello stesso commit del codice.
 Si apre in seguito, non in questo blocco: multi-tenant (`workspace_id` su ogni tabella, account,
 inviti), limiti e costi per workspace, più worker in parallelo.
 
+### Blocco 7 — Interfaccia da prodotto  🚧 in corso
+
+Perché: prima del deploy l'interfaccia era un pannello da sviluppatore. Una pagina lunga di pannelli
+impilati, testi per chi ha scritto il codice ("VOICE_ORCH_PROVIDER", "FakeProvider", "vedi il
+README"), italiano e inglese mescolati, pulsanti nativi del browser, nessuna identità. E il pezzo
+che distingue il progetto (il router a 3 livelli che decide in tempo reale) non si vedeva durante
+la chiamata.
+
+Decisioni (Matteo, 2026-10-05): interfaccia **in inglese** (il link va nel CV e in candidature
+internazionali; gli agenti demo continuano a parlare italiano), stile **SaaS chiaro e pulito**,
+priorità al **visitatore che arriva dal link**: ordine A → D → C → B.
+
+- [x] **A. Struttura e stile.** Menu laterale (Agents, Knowledge, Tools, Calls, Analytics) con
+      "Start a call" come pulsante primario sempre visibile; intestazione di pagina con titolo e
+      una frase su cosa fa la vista; i tool (built-in, webhook, MCP) in una pagina propria invece che
+      in fondo al builder. Token in `web/src/index.css`: bianco, superficie grigio freddo, testo blu
+      inchiostro, un solo accento verde centralino `#0E6E55`, IBM Plex Sans/Mono (il viola generico
+      è stato tolto). **Unico elemento distintivo:** i tre livelli del router hanno ciascuno un colore
+      (gate ardesia, pattern verde acqua, LLM ambra), usato con lo stesso significato ovunque:
+      etichette nella trascrizione (`LevelChip`), barre di Analytics, badge nell'elenco agenti. Tutti
+      i testi in inglese, frontend e messaggi del backend compresi; criteri di valutazione di default
+      con id inglesi (`request_resolved`, `reached_specialist`, `no_human_handover`). Testi per
+      visitatori, non per sviluppatori. Su schermi stretti il menu diventa una barra in alto.
+- [ ] **D. Overview** per chi arriva dal link: cosa fa la piattaforma in 10 secondi, come provarla,
+      il router spiegato con lo stesso codice colore. Dashboard e conversazioni rifinite.
+- [ ] **C. Chiamata in vetrina:** schermata di chiamata con trascrizione dal vivo, agente che parla
+      e livello del router a ogni turno. Richiede backend: oggi il worker non manda gli eventi di
+      routing al browser durante la chiamata (candidato: data channel LiveKit dal worker).
+- [ ] **B. Agenti:** pagina dell'agente con sottosezioni (prompt, voce, tool, knowledge), grafo più
+      leggibile (oggi gli archi tratteggiati verso "Human handover"/"End of call" fanno un groviglio
+      e i nomi sono troncati), pannello di test a lato invece che in fondo, test testuale a più turni.
+
 ### Escluso di proposito (per ora)
 
 Telefonia (numeri, SIP, batch outbound), widget embeddabile, versioning con branch/merge,
@@ -366,4 +398,5 @@ infrastruttura che nessuna rifinitura della UI chiude.
 | `58ed2f4` | Piano del blocco 6 (piattaforma online: web + worker + Postgres su Render) aggiunto alla roadmap, nessun cambio di codice |
 | `ab149aa` | Blocco 6, passo 1: modalità condivisa (`VOICE_ORCH_DATABASE_URL`, Postgres o SQLite): chiamate, log webhook, minuti vocali e testo della knowledge nel DB; suite verde anche su Postgres |
 | `6592710` | Blocco 6, passo 2: il worker legge famiglia e tool dal DB a ogni chiamata (D4 chiuso in modalità condivisa); FastAPI serve anche il frontend compilato |
-| (questo commit) | Blocco 6, passo 3: accesso owner/visitatori (login, sola lettura, try-it gratuito per i visitatori), immagini Docker per web e worker, `render.yaml` (web + worker + Postgres). Ciclo completo verificato in locale con una chiamata LiveKit vera |
+| `ef0b88d` | Blocco 6, passo 3: accesso owner/visitatori (login, sola lettura, try-it gratuito per i visitatori), immagini Docker per web e worker, `render.yaml` (web + worker + Postgres). Ciclo completo verificato in locale con una chiamata LiveKit vera |
+| (questo commit) | Blocco 7, fase A: nuova struttura con menu laterale, pagina Tools, sistema visivo (Plex, verde centralino, colori dei livelli del router), interfaccia e messaggi del backend in inglese |

@@ -209,8 +209,8 @@ export function AgentGraph({ root, selectedId, onSelect, onAddChild, onChanged }
 
     if (
       !confirm(
-        `Spostare "${draggedAgent.name || draggedAgent.id}" sotto "${target.name || target.id}"? ` +
-          `Porta con sé tutti i suoi sotto-agenti.`,
+        `Move "${draggedAgent.name || draggedAgent.id}" under "${target.name || target.id}"? ` +
+          `Its specialists move with it.`,
       )
     ) {
       setPositions((prev) => new Map(prev).set(drag.id, drag.origin))
@@ -228,7 +228,7 @@ export function AgentGraph({ root, selectedId, onSelect, onAddChild, onChanged }
 
   const handleDuplicate = async (agent: Agent, e: React.MouseEvent) => {
     e.stopPropagation()
-    const newId = prompt(`Id del duplicato di "${agent.id}"`, `${agent.id}_copy`)
+    const newId = prompt(`ID for the copy of "${agent.id}"`, `${agent.id}_copy`)
     if (!newId || !newId.trim()) return
     try {
       await api.createAgent({
@@ -264,17 +264,16 @@ export function AgentGraph({ root, selectedId, onSelect, onAddChild, onChanged }
       <div className="agent-graph__toolbar">
         <input
           className="agent-graph__search"
-          placeholder="cerca per id, nome o descrizione…"
+          placeholder="Search agents"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
         <span className="field-hint">
-          Trascina i nodi — la posizione si salva da sola. Trascina un nodo sopra un altro per
-          cambiargli genitore.
+          {owner ? 'Drag to arrange. Drop an agent on another to move it under that one.' : ''}
         </span>
         {owner && selectedId && (
           <button type="button" className="btn-link" onClick={() => onAddChild(selectedId)}>
-            + figlio di {selectedId}
+            + Add specialist under {selectedId}
           </button>
         )}
       </div>
@@ -310,7 +309,7 @@ export function AgentGraph({ root, selectedId, onSelect, onAddChild, onChanged }
                     </text>
                   )}
                   <text x={midX} y={midY + 8} className="agent-graph__edge-label">
-                    {levels.selector === 'pattern' ? 'pattern' : 'LLM fallback'}
+                    {levels.selector === 'pattern' ? 'pattern' : 'LLM'}
                   </text>
                 </g>
               )
@@ -358,7 +357,7 @@ export function AgentGraph({ root, selectedId, onSelect, onAddChild, onChanged }
             <g transform={`translate(${virtualPositions[HUMAN_NODE].x},${virtualPositions[HUMAN_NODE].y})`}>
               <rect width={NODE_W} height={NODE_H} rx={10} className="agent-graph__node agent-graph__node--virtual" />
               <text x={NODE_W / 2} y={NODE_H / 2 + 4} textAnchor="middle" className="agent-graph__node-title">
-                👤 Operatore umano
+                Human handover
               </text>
             </g>
           )}
@@ -366,7 +365,7 @@ export function AgentGraph({ root, selectedId, onSelect, onAddChild, onChanged }
             <g transform={`translate(${virtualPositions[END_CALL_NODE].x},${virtualPositions[END_CALL_NODE].y})`}>
               <rect width={NODE_W} height={NODE_H} rx={10} className="agent-graph__node agent-graph__node--virtual" />
               <text x={NODE_W / 2} y={NODE_H / 2 + 4} textAnchor="middle" className="agent-graph__node-title">
-                📴 Fine chiamata
+                End of call
               </text>
             </g>
           )}

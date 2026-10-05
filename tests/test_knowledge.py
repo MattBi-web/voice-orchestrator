@@ -168,7 +168,7 @@ def test_add_from_url_extracts_page_sections(client, monkeypatch):
 
 def test_add_from_url_refuses_private_hosts_and_non_text(client, monkeypatch):
     r = client.post("/api/knowledge/from-url", json={"url": "http://127.0.0.1:8000/api/health"})
-    assert r.status_code == 502 and "privata" in r.json()["detail"]
+    assert r.status_code == 502 and "private" in r.json()["detail"]
     assert client.post("/api/knowledge/from-url", json={"url": "file:///etc/passwd"}).status_code == 502
 
     monkeypatch.setattr(
@@ -178,4 +178,4 @@ def test_add_from_url_refuses_private_hosts_and_non_text(client, monkeypatch):
     )
     monkeypatch.setattr(knowledge_repository, "_is_private_host", lambda host: False)
     r = client.post("/api/knowledge/from-url", json={"url": "https://example.com/doc.pdf"})
-    assert r.status_code == 502 and "non supportato" in r.json()["detail"]
+    assert r.status_code == 502 and "Unsupported" in r.json()["detail"]

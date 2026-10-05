@@ -1,37 +1,58 @@
+/* Voice Orchestrator — design tokens.
+ *
+ * One idea carries the identity: the router's three levels each own a color
+ * — gate (slate), pattern (teal), LLM fallback (amber) — and that color
+ * means the same thing everywhere it appears: graph edges, transcript
+ * chips, analytics bars. Everything else stays quiet: white, a cool grey
+ * surface, ink-blue text and one switchboard green for actions. Light only,
+ * by design. */
 :root {
-  --text: #2b2b33;
-  --text-h: #08060d;
-  --bg: #fff;
-  --bg-muted: #f6f5f8;
-  --border: #e0dee5;
-  --code-bg: #f4f3ec;
-  --accent: #7c3aed;
-  --accent-bg: rgba(124, 58, 237, 0.1);
-  --danger: #c0392b;
-  --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --mono: ui-monospace, Consolas, monospace;
+  color-scheme: light;
 
-  font: 15px/1.5 var(--sans);
-  color: var(--text);
+  --ink: #16202e;
+  --ink-2: #4a5566;
+  --ink-3: #7a8494;
+  --bg: #ffffff;
+  --surface: #f5f7f9;
+  --surface-2: #eceff3;
+  --line: #dde2e8;
+  --line-strong: #c6cdd6;
+
+  --green: #0e6e55;
+  --green-hover: #0b5a46;
+  --green-tint: #e5f2ee;
+  --danger: #b4322c;
+  --danger-tint: #fbeceb;
+
+  /* Router levels — semantic, never decorative. */
+  --gate: #56657a;
+  --gate-tint: #e8ecf1;
+  --pattern: #0f8a8a;
+  --pattern-tint: #ddf2f1;
+  --llm: #b7791f;
+  --llm-tint: #fbf0dc;
+
+  --sans: 'IBM Plex Sans', system-ui, sans-serif;
+  --mono: 'IBM Plex Mono', ui-monospace, monospace;
+  --radius: 6px;
+  --radius-lg: 10px;
+
+  /* Legacy names still used by component styles. */
+  --text: var(--ink-2);
+  --text-h: var(--ink);
+  --bg-muted: var(--surface);
+  --border: var(--line);
+  --code-bg: var(--surface-2);
+  --accent: var(--green);
+  --accent-bg: var(--green-tint);
+
+  font: 15px/1.55 var(--sans);
+  color: var(--ink-2);
   background: var(--bg);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --text: #d6d4db;
-    --text-h: #f3f4f6;
-    --bg: #16171d;
-    --bg-muted: #1d1e26;
-    --border: #2e303a;
-    --code-bg: #1f2028;
-    --accent: #c084fc;
-    --accent-bg: rgba(192, 132, 252, 0.15);
-    --danger: #e57373;
-  }
 }
 
 * {
@@ -40,38 +61,141 @@
 
 body {
   margin: 0;
+  background: var(--bg);
 }
 
 h1,
 h2,
-h3 {
+h3,
+h4 {
   font-family: var(--sans);
-  font-weight: 600;
-  color: var(--text-h);
+  color: var(--ink);
   margin: 0 0 8px;
+  letter-spacing: -0.01em;
+}
+
+h1 {
+  font-size: 26px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+h2 {
+  font-size: 19px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+h3 {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+h4 {
+  font-size: 13px;
+  font-weight: 600;
 }
 
 p {
   margin: 0;
 }
 
-code {
-  font-family: var(--mono);
-  font-size: 13px;
-  padding: 2px 5px;
-  border-radius: 4px;
-  background: var(--code-bg);
-  color: var(--text-h);
+a {
+  color: var(--green);
 }
 
+code {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--surface-2);
+  color: var(--ink);
+}
+
+/* Buttons: a bare <button> (no class) or .btn-primary is the primary
+   action; .btn-secondary, .btn-link, .btn-danger, .btn-icon are variants
+   (App.css). Every other classed button styles itself from a reset, so
+   hover colors never leak onto tabs, tree rows or list items. */
 button {
   font: inherit;
+  font-size: 14px;
   cursor: pointer;
+  background: none;
+  border: 0;
+  color: inherit;
+  padding: 0;
+  line-height: 1.3;
+}
+
+button:not([class]),
+.btn-primary {
+  font-weight: 500;
+  border-radius: var(--radius);
+  border: 1px solid var(--green);
+  background: var(--green);
+  color: #fff;
+  padding: 7px 14px;
+  transition: background-color 0.12s;
+}
+
+button:not([class]):hover:not(:disabled),
+.btn-primary:hover:not(:disabled) {
+  background: var(--green-hover);
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--green);
+  outline-offset: 2px;
 }
 
 input,
 textarea,
 select {
   font: inherit;
-  color: inherit;
+  font-size: 14px;
+  color: var(--ink);
+  background: var(--bg);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  padding: 7px 10px;
+  width: 100%;
+}
+
+input:disabled,
+textarea:disabled,
+select:disabled {
+  background: var(--surface);
+  color: var(--ink-2);
+}
+
+textarea {
+  resize: vertical;
+}
+
+input[type='checkbox'],
+input[type='radio'] {
+  width: auto;
+  accent-color: var(--green);
+}
+
+::placeholder {
+  color: var(--ink-3);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+    animation: none !important;
+    scroll-behavior: auto !important;
+  }
 }

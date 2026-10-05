@@ -27,7 +27,7 @@ function TreeNode({
       >
         <button className="tree-row__label" onClick={() => onSelect(node.id)}>
           {node.name || node.id}
-          {node.eligibility && <span className="tree-row__badge" title={node.eligibility}>gated</span>}
+          {node.eligibility && <span className="tree-row__badge" title={node.eligibility}>gate</span>}
         </button>
         {owner && (<button
           className="tree-row__add"

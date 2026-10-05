@@ -31,33 +31,33 @@ export function KnowledgePicker({ values, onChange }: Props) {
 
   return (
     <div className="field">
-      <label>Knowledge base</label>
+      <label>Knowledge</label>
       {failed ? (
-        <p className="error">Impossibile caricare i documenti.</p>
+        <p className="error">Couldn't load the documents.</p>
       ) : docs === null ? (
         <p className="kb-muted">Loading…</p>
       ) : docs.length === 0 && missing.length === 0 ? (
-        <p className="kb-muted">Nessun documento: aggiungine uno dalla tab "Knowledge base".</p>
+        <p className="kb-muted">No documents yet. Add one under Knowledge.</p>
       ) : (
         <div className="kb-picker">
           {docs.map((d) => (
             <label key={d.name} className="kb-check">
               <input type="checkbox" checked={values.includes(d.name)} onChange={() => toggle(d.name)} />
               <code>{d.name}</code>
-              <span className="kb-muted">{d.chunk_count} chunk</span>
+              <span className="kb-muted">{d.chunk_count} passages</span>
             </label>
           ))}
           {missing.map((name) => (
             <label key={name} className="kb-check">
               <input type="checkbox" checked onChange={() => toggle(name)} />
               <code>{name}</code>
-              <span className="kb-missing">file mancante</span>
+              <span className="kb-missing">file missing</span>
             </label>
           ))}
         </div>
       )}
       <p className="mcp-panel__hint">
-        Serve anche il tool <code>knowledge_lookup</code> tra i tool dell'agente.
+        The agent also needs the <code>knowledge_lookup</code> tool to search these.
       </p>
     </div>
   )

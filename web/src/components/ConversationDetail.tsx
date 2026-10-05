@@ -2,17 +2,12 @@ import { useEffect, useState } from 'react'
 import type { CallDetail } from '../types'
 import { api, ApiError } from '../api'
 import { VerdictChip } from './VerdictChip'
+import { LevelChip, SOURCE_LABELS, formatWhen } from './LevelChip'
 import { useOwner } from '../auth'
-
-const LEVEL_LABELS: Record<string, string> = {
-  gate_only: 'solo gate',
-  pattern: 'pattern',
-  llm_fallback: 'LLM fallback',
-}
 
 function formatValue(value: string | number | boolean | null): string {
   if (value === null || value === undefined) return '—'
-  if (typeof value === 'boolean') return value ? 'sì' : 'no'
+  if (typeof value === 'boolean') return value ? 'yes' : 'no'
   return String(value)
 }
 
@@ -53,40 +48,40 @@ export function ConversationDetail({ callId, onAnalyzed }: { callId: string; onA
   return (
     <div className="convo-detail">
       <div className="convo-detail__meta">
-        <span className={`dashboard__badge dashboard__badge--${call.source}`}>{call.source}</span>
-        <span>{new Date(call.started_at).toLocaleString('it-IT')}</span>
+        <span className={`dashboard__badge dashboard__badge--${call.source}`}>{SOURCE_LABELS[call.source] ?? call.source}</span>
+        <span>{formatWhen(call.started_at)}</span>
         <span>{call.duration_seconds.toFixed(1)}s</span>
-        <span>canale: {call.channel}</span>
-        <span>agente finale: {call.final_agent_id ?? '—'}</span>
-        <span>handoff: {call.handoffs}</span>
+        <span>{call.channel}</span>
+        <span>ended with {call.final_agent_id ?? '—'}</span>
+        <span>{call.handoffs} handover{call.handoffs === 1 ? '' : 's'}</span>
         <code className="convo-detail__id">{call.call_id}</code>
       </div>
 
       {error && <p className="error">{error}</p>}
 
       <section className="convo-detail__section">
-        <h3>Trascrizione</h3>
+        <h3>Transcript</h3>
         {call.turns.length === 0 ? (
           <p className="dashboard__empty">
-            Nessuna trascrizione: questa chiamata è stata registrata prima che le trascrizioni venissero salvate.
+            No transcript: this call was recorded before transcripts were saved.
           </p>
         ) : (
           <ol className="transcript">
             {call.turns.map((t, i) => (
               <li key={i} className={`transcript__turn transcript__turn--${t.speaker}`}>
                 <div className="transcript__who">
-                  {t.speaker === 'caller' ? 'Chiamante' : t.agent_id ?? 'agente'}
+                  {t.speaker === 'caller' ? 'Caller' : t.agent_id ?? 'Agent'}
                 </div>
                 <div className="transcript__bubble">{t.text}</div>
                 {t.routing && (
                   <div className="transcript__trace" title={t.routing.reason}>
-                    → <strong>{t.routing.chosen_agent ?? '—'}</strong> · {LEVEL_LABELS[t.routing.resolved_by] ?? t.routing.resolved_by}
-                    {' · '}
-                    {t.routing.latency_ms.toFixed(1)} ms · candidati: {t.routing.eligible_agents.join(', ') || '—'}
+                    <LevelChip level={t.routing.resolved_by} /> routed to <strong>{t.routing.chosen_agent ?? '—'}</strong> in{' '}
+                    {t.routing.latency_ms.toFixed(1)} ms
+                    {t.routing.eligible_agents.length > 0 && <> · candidates {t.routing.eligible_agents.join(', ')}</>}
                     {t.handoff && (
                       <span className="transcript__handoff">
                         {' '}
-                        · handoff {t.handoff.from_agent} → {t.handoff.to_agent}
+                        · handed over from {t.handoff.from_agent}
                       </span>
                     )}
                   </div>
@@ -108,41 +103,40 @@ export function ConversationDetail({ callId, onAnalyzed }: { callId: string; onA
 
       <section className="convo-detail__section">
         <div className="convo-detail__analysis-head">
-          <h3>Analisi</h3>
+          <h3>Evaluation</h3>
           <button
             type="button"
             className="btn-secondary"
             onClick={runAnalysis}
             disabled={analyzing || !owner}
-            title={owner ? undefined : 'Accedi come proprietario per analizzare'}
+            title={owner ? undefined : 'Sign in as the owner to evaluate calls'}
           >
-            {analyzing ? 'Analizzo…' : analysis ? 'Rianalizza' : 'Analizza'}
+            {analyzing ? 'Evaluating…' : analysis ? 'Evaluate again' : 'Evaluate'}
           </button>
         </div>
 
         {!analysis ? (
           <p className="dashboard__empty">
-            Non ancora analizzata. L'analisi usa i criteri della scheda "Criteri di valutazione".
+            Not evaluated yet. Evaluation checks the call against the criteria under Calls → Criteria.
           </p>
         ) : (
           <>
             <div className="convo-detail__verdict">
               <VerdictChip verdict={analysis.call_successful} />
               <span className={`method-badge method-badge--${analysis.method}`}>
-                {analysis.method === 'llm' ? `LLM · ${analysis.provider}` : 'euristica, non un giudizio LLM'}
+                {analysis.method === 'llm' ? `LLM · ${analysis.provider}` : 'rule-based, no model'}
               </span>
-              <span className="convo-detail__when">{new Date(analysis.analyzed_at).toLocaleString('it-IT')}</span>
+              <span className="convo-detail__when">Evaluated {formatWhen(analysis.analyzed_at)}</span>
             </div>
             {analysis.method === 'heuristic' && (
               <p className="convo-detail__note">
-                Nessun provider LLM configurato: i risultati sotto vengono da un confronto di parole chiave, utile a
-                provare il flusso ma non a valutare la chiamata. Imposta <code>VOICE_ORCH_PROVIDER</code> (e la chiave
-                relativa) sul backend per un giudizio vero.
+                No language model is configured, so only structural criteria (final agent, tools used) get a verdict.
+                Criteria written in plain language stay unclear until a model is set up.
               </p>
             )}
             {analysis.summary && <p className="convo-detail__summary">{analysis.summary}</p>}
 
-            <h4>Criteri</h4>
+            <h4>Criteria</h4>
             <table className="dashboard__table convo-detail__table">
               <tbody>
                 {analysis.criteria.map((c) => (
@@ -159,14 +153,14 @@ export function ConversationDetail({ callId, onAnalyzed }: { callId: string; onA
                 {analysis.criteria.length === 0 && (
                   <tr>
                     <td colSpan={3} className="dashboard__empty">
-                      Nessun criterio configurato.
+                      No criteria configured.
                     </td>
                   </tr>
                 )}
               </tbody>
             </table>
 
-            <h4>Dati estratti</h4>
+            <h4>Extracted data</h4>
             <table className="dashboard__table convo-detail__table">
               <tbody>
                 {analysis.data.map((d) => (
@@ -181,7 +175,7 @@ export function ConversationDetail({ callId, onAnalyzed }: { callId: string; onA
                 {analysis.data.length === 0 && (
                   <tr>
                     <td colSpan={3} className="dashboard__empty">
-                      Nessun campo configurato.
+                      No fields configured.
                     </td>
                   </tr>
                 )}

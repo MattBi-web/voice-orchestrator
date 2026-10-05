@@ -5,6 +5,7 @@ import { KeyValueEditor } from './KeyValueEditor'
 import { ListEditor } from './ListEditor'
 import { WebhookParamsEditor } from './WebhookParamsEditor'
 import { useOwner } from '../auth'
+import { formatWhen } from './LevelChip'
 
 interface FormState {
   name: string
@@ -89,7 +90,7 @@ function WebhookToolForm({
 
   const handleDelete = async () => {
     if (!initial) return
-    if (!confirm(`Eliminare il tool webhook "${initial.name}"? Se un agente usa ancora "webhook:${initial.name}" è bloccato.`)) return
+    if (!confirm(`Delete the webhook "${initial.name}"? It can't be deleted while an agent still uses "webhook:${initial.name}".`)) return
     setError(null)
     setDeleting(true)
     try {
@@ -105,11 +106,11 @@ function WebhookToolForm({
   return (
     <form className="agent-form webhook-panel__form" onSubmit={handleSubmit}>
       <fieldset className="ro-fieldset" disabled={!owner}>
-      <h3>{mode === 'create' ? 'Nuovo tool webhook' : `Modifica "${initial?.name}"`}</h3>
+      <h3>{mode === 'create' ? 'New webhook' : `Webhook "${initial?.name}"`}</h3>
       {error && <p className="error">{error}</p>}
 
       <div className="field">
-        <label>Nome</label>
+        <label>Name</label>
         <input
           required
           disabled={mode === 'edit'}
@@ -120,11 +121,11 @@ function WebhookToolForm({
       </div>
 
       <div className="field">
-        <label>Descrizione</label>
+        <label>Description</label>
         <input
           value={state.description}
           onChange={(e) => update({ description: e.target.value })}
-          placeholder="a cosa serve, in breve"
+          placeholder="What it does, briefly"
         />
       </div>
 
@@ -134,12 +135,12 @@ function WebhookToolForm({
           required
           value={state.url}
           onChange={(e) => update({ url: e.target.value })}
-          placeholder="https://api.esempio.it/ordini"
+          placeholder="https://api.example.com/orders"
         />
       </div>
 
       <div className="field">
-        <label>Metodo</label>
+        <label>Method</label>
         <select value={state.method} onChange={(e) => update({ method: e.target.value as WebhookMethod })}>
           {METHODS.map((m) => (
             <option key={m} value={m}>
@@ -150,7 +151,7 @@ function WebhookToolForm({
       </div>
 
       <div className="field">
-        <label>Timeout (secondi)</label>
+        <label>Timeout (seconds)</label>
         <input
           type="number"
           min={1}
@@ -162,13 +163,13 @@ function WebhookToolForm({
       </div>
 
       <KeyValueEditor
-        label="Header"
+        label="Headers"
         values={state.headers}
-        keyPlaceholder="es. Authorization"
-        valuePlaceholder="es. Bearer ... oppure {{secret:NOME}}"
+        keyPlaceholder="e.g. Authorization"
+        valuePlaceholder="e.g. Bearer … or {{secret:NAME}}"
         hint={
-          "Usa \"{{secret:NOME}}\" per leggere il valore da una variabile d'ambiente VOICE_ORCH_SECRET_NOME " +
-          'sul server — non viene mai salvato qui in chiaro.'
+          'Write {{secret:NAME}} to read the value from the VOICE_ORCH_SECRET_NAME environment variable on the ' +
+          'server. Secrets are never stored or shown here.'
         }
         onChange={(headers) => update({ headers })}
       />
@@ -176,9 +177,9 @@ function WebhookToolForm({
       <WebhookParamsEditor values={state.params} onChange={(params) => update({ params })} />
 
       <ListEditor
-        label="Triggers (parole chiave)"
+        label="Runs when the caller says"
         values={state.triggers}
-        placeholder="es. stato della rete"
+        placeholder="e.g. stato della rete"
         onChange={(triggers) => update({ triggers })}
       />
 
@@ -186,15 +187,15 @@ function WebhookToolForm({
       <div className="form-actions">
         {owner && (
           <button type="submit" disabled={saving}>
-            {saving ? 'Salvataggio…' : 'Salva'}
+            {saving ? 'Saving…' : 'Save webhook'}
           </button>
         )}
         <button type="button" className="btn-secondary" onClick={onCancel}>
-          {owner ? 'Annulla' : 'Chiudi'}
+          {owner ? 'Cancel' : 'Close'}
         </button>
         {owner && mode === 'edit' && (
           <button type="button" className="btn-danger" onClick={handleDelete} disabled={deleting}>
-            {deleting ? 'Elimino…' : 'Elimina'}
+            {deleting ? 'Deleting…' : 'Delete webhook'}
           </button>
         )}
       </div>
@@ -226,9 +227,9 @@ function ExecutionsLog() {
   return (
     <div className="webhook-panel__executions">
       <div className="mcp-panel__header">
-        <h3>Log esecuzioni</h3>
+        <h3>Recent runs</h3>
         <button type="button" className="btn-link" onClick={load}>
-          aggiorna
+          Refresh
         </button>
       </div>
       {error && <p className="error">{error}</p>}
@@ -239,18 +240,18 @@ function ExecutionsLog() {
           <table className="dashboard__table">
             <thead>
               <tr>
-                <th>Quando</th>
-                <th>Tool</th>
-                <th>Agente</th>
-                <th>Metodo</th>
-                <th>Esito</th>
-                <th>Latenza</th>
+                <th>When</th>
+                <th>Webhook</th>
+                <th>Agent</th>
+                <th>Method</th>
+                <th>Result</th>
+                <th>Time</th>
               </tr>
             </thead>
             <tbody>
               {executions.map((e, i) => (
                 <tr key={i}>
-                  <td>{new Date(e.at).toLocaleString()}</td>
+                  <td>{formatWhen(e.at)}</td>
                   <td>
                     <code>webhook:{e.tool_name}</code>
                   </td>
@@ -259,7 +260,7 @@ function ExecutionsLog() {
                   <td>
                     <span className={`verdict verdict--${e.ok ? 'success' : 'failure'}`}>
                       <span className="verdict__icon">{e.ok ? '✓' : '✕'}</span>
-                      {e.status_code ?? (e.error || 'errore')}
+                      {e.status_code ?? (e.error || 'error')}
                     </span>
                   </td>
                   <td>{Math.round(e.latency_ms)} ms</td>
@@ -268,7 +269,7 @@ function ExecutionsLog() {
               {executions.length === 0 && (
                 <tr>
                   <td colSpan={6} className="dashboard__empty">
-                    Nessuna esecuzione registrata ancora.
+                    No runs yet.
                   </td>
                 </tr>
               )}
@@ -322,18 +323,16 @@ export function WebhookToolsPanel({ onChanged }: Props) {
   return (
     <section className="mcp-panel webhook-panel">
       <div className="mcp-panel__header">
-        <h2>Tool webhook (HTTP)</h2>
+        <h2>Webhooks</h2>
         {owner && selection.kind === 'none' && (
           <button type="button" className="btn-link" onClick={() => setSelection({ kind: 'create' })}>
-            + nuovo tool
+            + Add webhook
           </button>
         )}
       </div>
       <p className="mcp-panel__hint">
-        Ogni tool <code>webhook:&lt;nome&gt;</code> che vedi nell'editor dei tool qui sopra chiama un endpoint HTTP a
-        tua scelta. I parametri vengono presi dagli slot della chiamata o fissati qui; le chiavi negli header possono
-        riferirsi a un secret (<code>{'{{secret:NOME}}'}</code>) letto da una variabile d'ambiente sul server — non
-        viene mai salvato in chiaro in questa pagina né nel database.
+        Each webhook adds a tool named <code>webhook:&lt;name&gt;</code> that calls an HTTP endpoint when the caller
+        says one of its trigger phrases. Parameters come from the call or are fixed here.
       </p>
 
       {error && <p className="error">{error}</p>}
@@ -345,8 +344,8 @@ export function WebhookToolsPanel({ onChanged }: Props) {
           <table className="dashboard__table">
             <thead>
               <tr>
-                <th>Tool id</th>
-                <th>Metodo</th>
+                <th>Tool</th>
+                <th>Method</th>
                 <th>URL</th>
                 <th>Triggers</th>
                 <th></th>
@@ -369,7 +368,7 @@ export function WebhookToolsPanel({ onChanged }: Props) {
                       className="btn-link"
                       onClick={() => setSelection({ kind: 'edit', name: t.name })}
                     >
-                      modifica
+                      {owner ? 'Edit' : 'View'}
                     </button>
                   </td>
                 </tr>
@@ -377,7 +376,7 @@ export function WebhookToolsPanel({ onChanged }: Props) {
               {tools.length === 0 && (
                 <tr>
                   <td colSpan={5} className="dashboard__empty">
-                    Nessun tool webhook configurato.
+                    No webhooks yet.
                   </td>
                 </tr>
               )}

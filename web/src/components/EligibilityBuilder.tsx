@@ -45,10 +45,10 @@ export function EligibilityBuilder({ value, onChange }: Props) {
   if (advanced) {
     return (
       <div className="field">
-        <label>Eligibility (Level-1 gate expression)</label>
+        <label>Who can reach this agent</label>
         <input value={value} onChange={(e) => onChange(e.target.value)} placeholder="e.g. authenticated == true and region != 'embargoed'" />
         <button type="button" className="btn-link" onClick={() => setAdvanced(false)}>
-          Usa il builder semplice
+          Use the simple builder
         </button>
       </div>
     )
@@ -58,11 +58,11 @@ export function EligibilityBuilder({ value, onChange }: Props) {
 
   return (
     <div className="field">
-      <label>Eligibility (Level-1 gate expression)</label>
+      <label>Who can reach this agent</label>
       <div className="eligibility-builder">
         <input
           list="eligibility-fields"
-          placeholder="campo, es. authenticated"
+          placeholder="field, e.g. authenticated"
           value={current.field}
           onChange={(e) => onChange(render({ ...current, field: e.target.value }))}
         />
@@ -72,20 +72,21 @@ export function EligibilityBuilder({ value, onChange }: Props) {
           ))}
         </datalist>
         <select value={current.op} onChange={(e) => onChange(render({ ...current, op: e.target.value as '==' | '!=' }))}>
-          <option value="==">è uguale a</option>
-          <option value="!=">è diverso da</option>
+          <option value="==">equals</option>
+          <option value="!=">is not</option>
         </select>
         <input
-          placeholder="valore, es. true oppure voice"
+          placeholder="value, e.g. true or voice"
           value={current.value}
           onChange={(e) => onChange(render({ ...current, value: e.target.value }))}
         />
       </div>
       <p className="field-hint">
-        Vuoto = sempre eleggibile. Per espressioni con "and"/"or"/"not" passa all'avanzato.
+        The router's first level: a rule checked before anything else. Leave it empty to let every caller
+        through. Combine conditions with and/or/not in the advanced editor.
       </p>
       <button type="button" className="btn-link" onClick={() => setAdvanced(true)}>
-        Avanzato (testo libero)
+        Advanced editor
       </button>
     </div>
   )

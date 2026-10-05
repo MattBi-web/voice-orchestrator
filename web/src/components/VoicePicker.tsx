@@ -10,10 +10,10 @@ interface Props {
 // real dropdown instead of a free-text field (blocco 2's "real pickers"
 // item), with "custom" as the escape hatch for a cloned/other voice id.
 const PRESETS = [
-  { id: '21m00Tcm4TlvDq8ikWAM', label: 'Rachel — calma, misurata' },
-  { id: 'EXAVITQu4vr4xnSDxMaL', label: 'Bella — calda, informale' },
-  { id: 'VR6AewLTigWG4xSOukaG', label: 'Arnold — profonda, autorevole' },
-  { id: 'pNInz6obpgDQGcFmaJgB', label: 'Adam — neutra, professionale' },
+  { id: '21m00Tcm4TlvDq8ikWAM', label: 'Rachel · calm, measured' },
+  { id: 'EXAVITQu4vr4xnSDxMaL', label: 'Bella · warm, informal' },
+  { id: 'VR6AewLTigWG4xSOukaG', label: 'Arnold · deep, authoritative' },
+  { id: 'pNInz6obpgDQGcFmaJgB', label: 'Adam · neutral, professional' },
 ]
 
 export function VoicePicker({ value, onChange }: Props) {
@@ -22,7 +22,7 @@ export function VoicePicker({ value, onChange }: Props) {
 
   return (
     <div className="field">
-      <label>Voce (ElevenLabs, blocco 2)</label>
+      <label>Voice</label>
       <select
         value={isCustom ? '__custom__' : value.voice_id}
         onChange={(e) => {
@@ -30,17 +30,17 @@ export function VoicePicker({ value, onChange }: Props) {
           onChange({ ...value, voice_id: next === '__custom__' ? value.voice_id || ' ' : next })
         }}
       >
-        <option value="">Eredita dalla famiglia (nessuna voce dedicata)</option>
+        <option value="">Same as the rest of the family</option>
         {PRESETS.map((p) => (
           <option key={p.id} value={p.id}>
             {p.label}
           </option>
         ))}
-        <option value="__custom__">Voice id personalizzato…</option>
+        <option value="__custom__">Custom ElevenLabs voice ID…</option>
       </select>
       {isCustom && (
         <input
-          placeholder="voice_id ElevenLabs"
+          placeholder="ElevenLabs voice ID"
           value={value.voice_id.trim()}
           onChange={(e) => onChange({ ...value, voice_id: e.target.value })}
         />
@@ -48,7 +48,7 @@ export function VoicePicker({ value, onChange }: Props) {
       {value.voice_id && (
         <div className="voice-picker__sliders">
           <label className="voice-picker__slider">
-            Stabilità {value.voice_stability ?? 0.5}
+            Stability {value.voice_stability ?? 0.5}
             <input
               type="range"
               min={0}
@@ -59,7 +59,7 @@ export function VoicePicker({ value, onChange }: Props) {
             />
           </label>
           <label className="voice-picker__slider">
-            Velocità {value.voice_speed ?? 1}
+            Speed {value.voice_speed ?? 1}
             <input
               type="range"
               min={0.7}
@@ -72,8 +72,7 @@ export function VoicePicker({ value, onChange }: Props) {
         </div>
       )}
       <p className="field-hint">
-        Collegata davvero al TTS (fixa D1) — vedi voice/agent.py. Non verificata su una chiamata
-        reale in questo ambiente (niente credenziali LiveKit/ElevenLabs qui).
+        The caller hears this voice as soon as the call is handed to this agent.
       </p>
     </div>
   )

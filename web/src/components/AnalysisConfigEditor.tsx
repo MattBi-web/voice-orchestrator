@@ -6,14 +6,14 @@ import { useOwner } from '../auth'
 const TYPES: DataItemType[] = ['string', 'boolean', 'integer', 'number']
 
 const KINDS: { value: CriterionKind; label: string; expectedHint: string }[] = [
-  { value: 'llm', label: 'Giudicato da LLM', expectedHint: '' },
+  { value: 'llm', label: 'Judged by a model', expectedHint: '' },
   {
     value: 'final_agent',
-    label: 'Agente finale',
-    expectedHint: "id agenti attesi, separati da virgola (vuoto = qualsiasi agente diverso da quello d'ingresso)",
+    label: 'Ended with agent',
+    expectedHint: 'Expected agent IDs, comma-separated (empty: any agent but the receptionist)',
   },
-  { value: 'tool_used', label: 'Tool usato', expectedHint: 'id tool, separati da virgola (basta uno)' },
-  { value: 'tool_not_used', label: 'Tool non usato', expectedHint: 'id tool, separati da virgola (nessuno deve comparire)' },
+  { value: 'tool_used', label: 'Tool was used', expectedHint: 'Tool IDs, comma-separated (any one is enough)' },
+  { value: 'tool_not_used', label: 'Tool was not used', expectedHint: 'Tool IDs, comma-separated (none may appear)' },
 ]
 
 const splitIds = (raw: string) =>
@@ -67,38 +67,36 @@ export function AnalysisConfigEditor() {
     <form className="analysis-config" onSubmit={save}>
       <fieldset className="ro-fieldset" disabled={!owner}>
       <p className="mcp-panel__hint">
-        Valgono per tutta la famiglia di agenti, non per un singolo agente: una chiamata passa da più agenti ed è la
-        chiamata intera che si valuta. Modificarli non cambia le analisi già fatte: usa "Rianalizza" su una chiamata
-        per rivalutarla.
+        Criteria apply to the whole call, not to one agent, because a call moves between agents. Changing them
+        doesn't touch past evaluations: open a call and evaluate it again.
       </p>
       <p className="mcp-panel__hint">
-        I criteri "Giudicato da LLM" richiedono un provider configurato: senza chiavi restano <em>unknown</em>. Gli
-        altri tipi (agente finale, tool usato/non usato) sono controlli strutturali sulla trascrizione: danno un
-        verdetto affidabile anche senza chiavi.
+        "Judged by a model" needs a language model configured; without one it stays unclear. The other kinds check
+        facts in the transcript, so they always give a verdict.
       </p>
       {error && <p className="error">{error}</p>}
 
-      <h3>Criteri di successo</h3>
+      <h3>Success criteria</h3>
       {cfg.criteria.map((c, i) => (
         <div className="analysis-config__row" key={i}>
           <div className="analysis-config__cols">
             <input
               required
-              placeholder="id, es. richiesta_risolta"
+              placeholder="ID, e.g. request_resolved"
               value={c.id}
               onChange={(e) =>
                 patch({ ...cfg, criteria: cfg.criteria.map((x, j) => (j === i ? { ...x, id: e.target.value } : x)) })
               }
             />
             <input
-              placeholder="nome visibile"
+              placeholder="Display name"
               value={c.name}
               onChange={(e) =>
                 patch({ ...cfg, criteria: cfg.criteria.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)) })
               }
             />
             <select
-              aria-label={`Tipo del criterio ${c.id}`}
+              aria-label={`Kind of criterion ${c.id}`}
               value={c.kind}
               onChange={(e) => patchCriterion(i, { kind: e.target.value as CriterionKind })}
             >
@@ -111,7 +109,7 @@ export function AnalysisConfigEditor() {
             <button
               type="button"
               className="btn-icon"
-              aria-label={`Rimuovi criterio ${c.id}`}
+              aria-label={`Remove criterion ${c.id}`}
               onClick={() => patch({ ...cfg, criteria: cfg.criteria.filter((_, j) => j !== i) })}
             >
               ×
@@ -134,8 +132,8 @@ export function AnalysisConfigEditor() {
             rows={2}
             placeholder={
               c.kind === 'llm'
-                ? 'Cosa significa successo, in linguaggio naturale'
-                : 'Descrizione (facoltativa: il controllo è strutturale)'
+                ? 'What success means, in plain language'
+                : 'Description (optional: this is a fact check)'
             }
             value={c.prompt}
             onChange={(e) =>
@@ -149,16 +147,16 @@ export function AnalysisConfigEditor() {
         className="btn-link"
         onClick={() => patch({ ...cfg, criteria: [...cfg.criteria, { id: '', name: '', prompt: '', kind: 'llm', expected: [] }] })}
       >
-        + aggiungi criterio
+        + Add criterion
       </button>
 
-      <h3>Dati da estrarre</h3>
+      <h3>Data to extract</h3>
       {cfg.data_items.map((d, i) => (
         <div className="analysis-config__row" key={i}>
           <div className="analysis-config__cols">
             <input
               required
-              placeholder="id, es. motivo_chiamata"
+              placeholder="ID, e.g. call_reason"
               value={d.id}
               onChange={(e) =>
                 patch({ ...cfg, data_items: cfg.data_items.map((x, j) => (j === i ? { ...x, id: e.target.value } : x)) })
@@ -182,7 +180,7 @@ export function AnalysisConfigEditor() {
             <button
               type="button"
               className="btn-icon"
-              aria-label={`Rimuovi campo ${d.id}`}
+              aria-label={`Remove field ${d.id}`}
               onClick={() => patch({ ...cfg, data_items: cfg.data_items.filter((_, j) => j !== i) })}
             >
               ×
@@ -191,7 +189,7 @@ export function AnalysisConfigEditor() {
           <textarea
             required
             rows={2}
-            placeholder="Cosa estrarre dalla chiamata"
+            placeholder="What to extract from the call"
             value={d.description}
             onChange={(e) =>
               patch({
@@ -209,15 +207,15 @@ export function AnalysisConfigEditor() {
           patch({ ...cfg, data_items: [...cfg.data_items, { id: '', type: 'string', description: '' }] })
         }
       >
-        + aggiungi campo
+        + Add field
       </button>
 
       </fieldset>
       <div className="form-actions">
         <button type="submit" disabled={saving || !owner}>
-          {saving ? 'Salvataggio…' : 'Salva'}
+          {saving ? 'Saving…' : 'Save criteria'}
         </button>
-        {saved && <span className="analysis-config__saved">Salvato.</span>}
+        {saved && <span className="analysis-config__saved">Saved.</span>}
       </div>
     </form>
   )

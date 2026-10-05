@@ -1,31 +1,15 @@
 import { useEffect, useState } from 'react'
-import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import type { CallRecord, CallStats } from '../types'
 import { api, ApiError } from '../api'
 import { VerdictChip } from './VerdictChip'
+import { LEVEL_HEX, LEVELS, SOURCE_LABELS, formatWhen } from './LevelChip'
 
-// This project's single-series bar charts all carry one measure broken out
-// by a nominal category (day, routing level, tool, or source) — per the
-// data-viz method, that's "one series, one color," never a rainbow across
-// bars that would just double-encode the bar's own length as hue. One hue
-// (categorical slot 1, light/dark stepped) is all four charts below need.
+// One measure per chart, one hue per chart — except routing, where each bar
+// *is* a router level and takes that level's color, the same one it has in
+// transcripts and on the graph. Light theme only (see index.css).
 function useChartPalette() {
-  const [dark, setDark] = useState(() => window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false)
-  useEffect(() => {
-    const mq = window.matchMedia('(prefers-color-scheme: dark)')
-    const onChange = (e: MediaQueryListEvent) => setDark(e.matches)
-    mq.addEventListener('change', onChange)
-    return () => mq.removeEventListener('change', onChange)
-  }, [])
-  return dark
-    ? { series: '#3987e5', grid: '#2c2c2a', axis: '#383835', muted: '#898781' }
-    : { series: '#2a78d6', grid: '#e1e0d9', axis: '#c3c2b7', muted: '#898781' }
-}
-
-const RESOLVED_BY_LABELS: Record<string, string> = {
-  gate_only: 'solo gate',
-  pattern: 'pattern',
-  llm_fallback: 'LLM fallback',
+  return { series: '#16202e', grid: '#e6e9ee', axis: '#c6cdd6', muted: '#7a8494' }
 }
 
 function StatTile({ label, value }: { label: string; value: string }) {
@@ -43,15 +27,17 @@ function MiniBarChart({
   yKey,
   palette,
   height = 180,
+  colors,
 }: {
   data: Record<string, string | number>[]
   xKey: string
   yKey: string
   palette: ReturnType<typeof useChartPalette>
   height?: number
+  colors?: string[]
 }) {
   if (data.length === 0) {
-    return <p className="dashboard__empty">Ancora nessun dato.</p>
+    return <p className="dashboard__empty">No data yet.</p>
   }
   return (
     <ResponsiveContainer width="100%" height={height}>
@@ -68,7 +54,9 @@ function MiniBarChart({
           cursor={{ fill: palette.grid }}
           contentStyle={{ background: 'var(--bg)', border: `1px solid ${palette.grid}`, borderRadius: 6, fontSize: 12 }}
         />
-        <Bar dataKey={yKey} fill={palette.series} radius={[4, 4, 0, 0]} maxBarSize={36} />
+        <Bar dataKey={yKey} fill={palette.series} radius={[3, 3, 0, 0]} maxBarSize={36}>
+          {colors && data.map((_, i) => <Cell key={i} fill={colors[i] ?? palette.series} />)}
+        </Bar>
       </BarChart>
     </ResponsiveContainer>
   )
@@ -100,8 +88,9 @@ export function Dashboard({ onOpenCall }: { onOpenCall: (callId: string) => void
 
   const routingData = stats
     ? Object.entries(stats.resolved_by_totals).map(([level, count]) => ({
-        level: RESOLVED_BY_LABELS[level] ?? level,
+        level: LEVELS[level]?.label ?? level,
         count,
+        color: LEVEL_HEX[level] ?? '#16202e',
       }))
     : []
   const toolData = stats ? Object.entries(stats.tool_totals).map(([tool, count]) => ({ tool, count })) : []
@@ -110,14 +99,13 @@ export function Dashboard({ onOpenCall }: { onOpenCall: (callId: string) => void
   return (
     <div className="dashboard">
       <div className="dashboard__toolbar">
-        <h2>Dashboard chiamate</h2>
         <div className="dashboard__toolbar-actions">
           <label className="dashboard__toggle">
             <input type="checkbox" checked={includeTest} onChange={(e) => setIncludeTest(e.target.checked)} />
-            Includi i test da "Agent builder"
+            Include text tests
           </label>
           <button type="button" className="btn-secondary" onClick={load}>
-            Aggiorna
+            Refresh
           </button>
         </div>
       </div>
@@ -128,59 +116,63 @@ export function Dashboard({ onOpenCall }: { onOpenCall: (callId: string) => void
         <p>Loading…</p>
       ) : stats && stats.total_calls === 0 ? (
         <p className="dashboard__empty">
-          Nessuna chiamata registrata ancora. Prova qualcosa nel box "Agent builder", o fai una chiamata vera dalla tab
-          "Test live (voce)" — ogni chiamata finita finisce qui.
+          No calls yet. Start a call, or send a message from the text test under Agents: every finished call shows
+          up here.
         </p>
       ) : (
         <>
           <div className="dashboard__tiles">
-            <StatTile label="Chiamate totali" value={String(stats?.total_calls ?? 0)} />
-            <StatTile label="Minuti totali" value={(stats?.total_minutes ?? 0).toFixed(1)} />
-            <StatTile label="Durata media (s)" value={(stats?.avg_duration_seconds ?? 0).toFixed(1)} />
-            <StatTile label="Handoff rate" value={`${((stats?.handoff_rate ?? 0) * 100).toFixed(0)}%`} />
+            <StatTile label="Calls" value={String(stats?.total_calls ?? 0)} />
+            <StatTile label="Minutes" value={(stats?.total_minutes ?? 0).toFixed(1)} />
+            <StatTile label="Average length (s)" value={(stats?.avg_duration_seconds ?? 0).toFixed(1)} />
+            <StatTile label="Handed over" value={`${((stats?.handoff_rate ?? 0) * 100).toFixed(0)}%`} />
             <StatTile
-              label={`Successo (su ${stats?.analyzed_calls ?? 0} analizzate)`}
+              label={`Passed (of ${stats?.analyzed_calls ?? 0} evaluated)`}
               value={stats?.success_rate == null ? '—' : `${(stats.success_rate * 100).toFixed(0)}%`}
             />
           </div>
 
           <div className="dashboard__charts">
             <div className="dashboard__chart-card">
-              <h3>Chiamate per giorno (14gg)</h3>
+              <h3>Calls per day, last 14 days</h3>
               <MiniBarChart data={dayData} xKey="day" yKey="count" palette={palette} />
             </div>
             <div className="dashboard__chart-card">
-              <h3>Instradamento per livello</h3>
-              <MiniBarChart data={routingData} xKey="level" yKey="count" palette={palette} />
+              <h3>Turns by router level</h3>
+              <MiniBarChart
+                data={routingData}
+                xKey="level"
+                yKey="count"
+                palette={palette}
+                colors={routingData.map((d) => d.color)}
+              />
             </div>
             <div className="dashboard__chart-card">
-              <h3>Utilizzo tool</h3>
+              <h3>Tool runs</h3>
               <MiniBarChart data={toolData} xKey="tool" yKey="count" palette={palette} />
             </div>
           </div>
 
-          <h3 className="dashboard__table-title">Chiamate recenti · clicca una riga per trascrizione e analisi</h3>
+          <h3 className="dashboard__table-title">Recent calls</h3>
           <div className="dashboard__table-wrap">
             <table className="dashboard__table">
               <thead>
                 <tr>
-                  <th>Quando</th>
-                  <th>Fonte</th>
-                  <th>Canale</th>
-                  <th>Agente finale</th>
-                  <th>Durata</th>
-                  <th>Handoff</th>
-                  <th>Esito</th>
+                  <th>When</th>
+                  <th>Type</th>
+                  <th>Ended with</th>
+                  <th>Length</th>
+                  <th>Handovers</th>
+                  <th>Evaluation</th>
                 </tr>
               </thead>
               <tbody>
                 {calls.map((c) => (
                   <tr key={c.call_id} className="dashboard__row-link" onClick={() => onOpenCall(c.call_id)}>
-                    <td>{new Date(c.started_at).toLocaleString('it-IT')}</td>
+                    <td>{formatWhen(c.started_at)}</td>
                     <td>
-                      <span className={`dashboard__badge dashboard__badge--${c.source}`}>{c.source}</span>
+                      <span className={`dashboard__badge dashboard__badge--${c.source}`}>{SOURCE_LABELS[c.source] ?? c.source}</span>
                     </td>
-                    <td>{c.channel}</td>
                     <td>{c.final_agent_id ?? '—'}</td>
                     <td>{c.duration_seconds.toFixed(1)}s</td>
                     <td>{c.handoffs}</td>
@@ -191,8 +183,8 @@ export function Dashboard({ onOpenCall }: { onOpenCall: (callId: string) => void
                 ))}
                 {calls.length === 0 && (
                   <tr>
-                    <td colSpan={7} className="dashboard__empty">
-                      Nessuna chiamata da mostrare.
+                    <td colSpan={6} className="dashboard__empty">
+                      No calls to show.
                     </td>
                   </tr>
                 )}

@@ -552,10 +552,10 @@ def test_unknown_call_is_404_for_detail_and_analyze(client):
 
 def test_analysis_config_is_seeded_with_defaults(client):
     config_body = client.get("/api/analysis/config").json()
-    assert [c["id"] for c in config_body["criteria"]] == ["richiesta_risolta", "agente_corretto", "senza_operatore"]
+    assert [c["id"] for c in config_body["criteria"]] == ["request_resolved", "reached_specialist", "no_human_handover"]
     kinds = {c["id"]: (c["kind"], c["expected"]) for c in config_body["criteria"]}
-    assert kinds["senza_operatore"] == ("tool_not_used", ["transfer_to_human"])
-    assert {d["id"] for d in config_body["data_items"]} == {"motivo_chiamata", "richiesta_operatore"}
+    assert kinds["no_human_handover"] == ("tool_not_used", ["transfer_to_human"])
+    assert {d["id"] for d in config_body["data_items"]} == {"call_reason", "asked_for_human"}
 
 
 def test_analyze_stores_result_and_feeds_list_and_stats(client):
@@ -564,9 +564,9 @@ def test_analyze_stores_result_and_feeds_list_and_stats(client):
 
     assert result["method"] == "heuristic"  # no API key in tests
     assert result["call_successful"] in ("success", "failure", "unknown")
-    assert {c["criterion_id"] for c in result["criteria"]} == {"richiesta_risolta", "agente_corretto", "senza_operatore"}
+    assert {c["criterion_id"] for c in result["criteria"]} == {"request_resolved", "reached_specialist", "no_human_handover"}
     data = {d["item_id"]: d["value"] for d in result["data"]}
-    assert data["richiesta_operatore"] is True  # "voglio parlare con un operatore"
+    assert data["asked_for_human"] is True  # "voglio parlare con un operatore"
 
     detail = client.get(f"/api/calls/{call_id}").json()
     assert detail["analysis"]["call_successful"] == result["call_successful"]
