@@ -272,10 +272,21 @@ That's the same shape this project already had: `handle_turn()` takes a string, 
   would crash if awaited directly inside `llm_node` — already running inside LiveKit's own event
   loop. `asyncio.to_thread()` runs it on a worker thread instead, sidestepping the "cannot be
   called from a running event loop" error.
-- **`voice/worker.py`** — the LiveKit worker entrypoint: wires `deepgram.STT(model="nova-3",
-  language="multi")`, `elevenlabs.TTS(model="eleven_flash_v2_5")` (Flash v2.5, not the plugin's
-  default `eleven_turbo_v2_5` — picked for the sub-300ms round-trip budget the architecture doc
-  set), and `silero.VAD.load()`, then starts an `AgentSession` around one `OrchestratorAgent`. The
+  Three things happen around that call. On a handover, `apply_voice()` switches TTS (and STT, from
+  the caller's next utterance) to the new agent's settings, so a specialist can sound different
+  from the receptionist. Each turn's routing is published on the room's data channel for the call
+  page (`call_events.py`). And the model is wrapped in `ResilientProvider` (`llm.py`): if it fails
+  mid-call (a bad key, an outage), the caller hears a short apology instead of silence, and the
+  error is logged.
+- **`voice/worker.py`** — the LiveKit worker entrypoint. It reads the project from the room name,
+  builds speech-to-text and the voice from that project's settings (`voice/providers.py`; the demo
+  uses `deepgram` nova-3 with `language="multi"` and ElevenLabs `eleven_flash_v2_5`, Flash rather
+  than the plugin's default Turbo, for the sub-300ms round-trip budget the architecture doc set),
+  adds `silero.VAD.load()`, and starts an `AgentSession` around one `OrchestratorAgent`.
+  `turn_handling` turns LiveKit's *preemptive generation* off: it starts the reply while the caller
+  may still be talking, and here a reply is a routing decision plus tool calls that change the
+  session, so a speculative turn on a half-finished sentence could hand the call over, or run a
+  tool, for words the caller never ended up saying. The
   `__main__` block sets `WorkerOptions(num_idle_processes=0)` — confirmed directly against the
   installed `livekit-agents`, outside dev mode this defaults to **2**, prewarming two full OS
   subprocesses (interpreter + the Silero VAD model + the Deepgram/ElevenLabs SDKs) before any call
@@ -344,89 +355,76 @@ installed.
 
 ## Agent builder: a web UI on the same core
 
-Everything above — the router, the agent family, memory, tools, the voice layer — is reachable
-only through `agents.yaml` and the CLI. `src/voice_orchestrator/webapi/` (FastAPI) and `web/`
-(React + Vite + TypeScript) add a second way in: a browser UI to create, edit, and delete agents
-in the family tree, and a "try it" box that runs a real utterance through the actual router —
-without hand-editing YAML or restarting anything. This is the product-layer gap between a CLI demo
-and something that resembles an ElevenLabs Agents / Vapi dashboard; the routing engine underneath
-is unchanged.
+`src/voice_orchestrator/webapi/` (FastAPI) and `web/` (React + Vite + TypeScript) put a builder on
+top of the same core. The router, tools and memory the builder tests are the ones a call runs
+through, not an approximation: every test calls the real `orchestrator.handle_turn()`.
 
-**Dual source of truth, on purpose — with an explicit bridge.** `config/agents.yaml` stays
-exactly what it was — the CLI's and test suite's source of truth, never touched automatically by
-the web layer. The web UI reads and writes a separate SQLite database (`data/agents.db`,
-gitignored — it's a developer's own edited family, not something to commit), seeded once from
-`agents.yaml` the first time it's empty (`webapi/seed.py`'s `seed_if_empty()` — idempotent, safe
-to call on every startup, so a server restart never wipes edits made through the UI). The two
-aren't unified by default: doing that automatically would mean changing already-tested CLI code to
-serve a newer, less-tested UI layer, and would mean every save in the browser silently overwrites a
-file tracked in git. What exists instead is a one-click, explicit export: the "↓ Esporta verso
-agents.yaml" button in the builder's sidebar calls `POST /api/agents/export`, which writes the
-current DB-backed family back to `config/agents.yaml` with the exact same `save_family()` the
-CLI's own `agents add`/`agents remove` commands already used (so this isn't a new serializer, just
-a new caller of one that shipped since the first commit). Nothing needs restarting afterwards —
-`chat`/`route`/`eval` and the voice worker's `new_voice_bridge()` all call `load_family()` fresh,
-so the very next invocation already sees the export, even against an already-running voice worker
-process. It's a manual action by design, not a sync: treat the two as separate environments day to
-day (YAML = what ships in the repo as the demo family; SQLite = your local playground), and export
-only when you actually want the browser's edits to become what `chat`, `route`, `eval`, and a real
-voice call all exercise.
+**Projects: one phone line each.** A project is either a single agent that answers the whole call,
+or a workflow where a receptionist hands callers to specialists. New projects start from a template
+(`config/templates/single.yaml`, `workflow.yaml`, or a copy of the demo). The demo project, Meridian
+Telecom, is seeded once from `config/agents.yaml`; agents are stored per project (`AgentRow`, keyed
+by `(project_id, id)`), so two lines can each have their own `billing` agent.
 
-**What's actually stored.** `webapi/models.py`'s `AgentRow` mirrors `AgentSpec` (`agents/registry.py`)
-field-for-field, with one simplification: `triggers`/`tools`/`knowledge` are stored as JSON text on
-the agent's own row rather than normalized child tables, because nothing in this UI queries or
-filters on them independently of their parent agent — every read and write handles them as one
-unit, same as a form submit does.
+**Every piece of the pipeline is a choice.** A project sets the default speech-to-text, the router's
+fallback model, the language model that writes replies, and the voice. Any agent can override any of
+them, field by field (`project.py`). One rule keeps overrides coherent: an agent that switches
+*provider* doesn't inherit the project's model or voice, because those belong to the other provider.
+The catalog (`catalog.py`, `GET /api/catalog`) offers Deepgram, OpenAI and AssemblyAI for speech
+recognition, ElevenLabs, OpenAI and Cartesia for voices, and Anthropic, OpenAI and Gemini for the
+models, and marks an entry available only when its key is set and its SDK installed: the builder
+never offers a model that would silently fall back to a placeholder. Each agent page shows the
+resolved pipeline (`GET /api/projects/{id}/agents/{agent}/pipeline`), piece by piece, with what is
+the project's default and what is overridden.
 
-**No duplicated routing logic.** `POST /api/test/route` doesn't reimplement or approximate
-routing — it rebuilds the real `AgentSpec` tree from SQLite and calls the actual
-`orchestrator.handle_turn()` — by default against `FakeProvider`, the same zero-API-key path
-`chat`/`route` use, or, with the box's "usa il provider configurato" checkbox, against the provider
-`VOICE_ORCH_PROVIDER` resolves to (`GET /api/llm/status` says which one, and whether a requested
-provider silently fell back to `FakeProvider` for a missing key). Each reply is labelled with the
-provider that actually composed it. The UI's "try it" box is exactly as trustworthy as the CLI's
-`route` command, because it's the same code.
+**The screens.**
 
-**Running it** (two servers, both local-dev only — the FastAPI app's CORS only allows
-`localhost:5173`, and it has no auth, so don't expose it on the open internet as-is):
+- **Agents** lists the projects: single agent or workflow, voice, model, calls.
+- **Agent** is the editor: prompt, keywords, gate rule, tools and knowledge on the left, models on
+  the right, and the pipeline across the top.
+- **Workflow** draws the family on a canvas, edges labelled by what routes a caller there (gate,
+  keyword pattern, LLM). Dropping an agent onto another re-nests it.
+- **Test**, a side panel on every project page, holds a multi-turn text conversation
+  (`/api/test/conversations`). The call session stays in server memory between turns, so slots,
+  handovers and history carry over exactly as on a call, and the family is re-read each turn, so an
+  edit saved mid-conversation applies to the next turn. Each turn explains itself: which level
+  decided, which keyword matched, which rule closed which agent, which tool ran.
+- **Start a call** connects the browser's microphone to a LiveKit room. `POST /api/voice/token`
+  signs a short-lived room token locally (`webapi/voice_token.py`); the room name carries the
+  project, so the worker loads the right line. The worker publishes every turn's routing on the
+  room's data channel (`call_events.py`, topic `vo.events`) and the page draws the same timeline as
+  the text test, live. Without LiveKit credentials the page says so and shows an example call
+  recorded through the real router (`scripts/make_example_call.py`).
+- **Calls** and **Analytics** cover every call and test, per project (below).
+- **Developer** shows ids, the resolved pipeline, the project as YAML and JSON, and API examples.
+  The demo project can be written back to `config/agents.yaml` with an explicit button
+  (`POST /api/agents/export`, the same `save_family()` the CLI's `agents add/remove` use). Never a
+  silent sync: the file is tracked in git and is what the CLI and the test suite read, so the
+  browser changing it on every save would be a surprise.
+- **Knowledge** and **Tools** are shared by all projects (below). `⌘K` jumps anywhere.
+
+**Who can change what.** Locally there's no login. With `VOICE_ORCH_OWNER_PASSWORD` set (the hosted
+setup), visitors can read everything and use what is free or already capped: text tests pinned to
+`FakeProvider`, so they never spend tokens on a paid model even when an agent overrides one, the
+knowledge preview, and voice calls under the worker's daily minutes cap. Every other write needs
+the owner's session cookie, signed with HMAC-SHA256 from the standard library (`webapi/auth.py`).
+
+**Running it.** In development, two servers:
 
 ```
-# Terminal 1 — backend (installs fastapi/uvicorn/sqlalchemy)
+# Terminal 1 — backend
 pip install -e ".[webapi]"
 uvicorn voice_orchestrator.webapi.app:app --reload --port 8000
 
 # Terminal 2 — frontend
-cd web
-npm install
-npm run dev
+cd web && npm install && npm run dev
 ```
 
-Open `http://localhost:5173`. The Vite dev server proxies `/api/*` to `localhost:8000`
-(`web/vite.config.ts`), so there's no CORS fiddling in dev. The "Agent builder" tab is the agent
-tree (click to edit, `+` to add a child under any node) plus the edit/create form, the
-text-based "try it" box (wired to `POST /api/test/route`), and the "Server MCP" panel below (see
-next). `tests/test_webapi.py` (37 tests, `TestClient` against a temp SQLite file) covers the full
-CRUD surface, the auto-seed-once behavior, both the happy and error paths (duplicate id, missing
-parent, delete-the-root, delete-with-children), the MCP-server endpoints below, and the
-voice-token endpoints below.
+Open `http://localhost:5173`; Vite proxies `/api/*` to port 8000. Or build once
+(`cd web && npm run build`) and let uvicorn serve the app from `web/dist` on its own port, which is
+what the hosted web service does. Calls also need the voice worker running (see "Voice layer").
 
-**"Test live (voce)" tab — a real call, not a text simulation.** `web/src/components/VoiceTestConsole.tsx`
-talks to LiveKit directly with the browser's own microphone, through
-[`livekit-client`](https://www.npmjs.com/package/livekit-client) — it has no idea the router,
-tools, or orchestrator exist, the same separation `chat`/the CLI already has from the voice layer.
-`POST /api/voice/token` (`webapi/voice_token.py`) is the only backend piece involved: it signs a
-short-lived LiveKit room token locally (no network call, just `livekit-api`'s `AccessToken`) for a
-freshly-named room — exactly what the hosted Agents Playground's own backend does for you. Click
-"Connetti e parla", grant mic access, and whatever worker is running
-(`python -m voice_orchestrator.voice.worker dev`) auto-joins the new room and answers, because a
-LiveKit Agents worker auto-dispatches to any room by default — the same mechanism that already
-makes the Playground work, just with this project's own UI around it instead. If `LIVEKIT_URL`/
-`LIVEKIT_API_KEY`/`LIVEKIT_API_SECRET` aren't set on the backend, the tab greys itself out with that
-exact explanation (`GET /api/voice/status`) rather than letting a click fail with an opaque network
-error.
-
-**"Dashboard" tab — real calls, not mock numbers.** Every call that finishes — a `chat` session, a
-real voice call, or one run of the "try it" box — gets one line appended to `data/call_log.jsonl`
+**Analytics: real calls, not mock numbers.** Every call that finishes — a `chat` session, a
+real voice call, or a text test — gets one line appended to `data/call_log.jsonl`
 by `call_log.py` (`call_log.from_session()` reads straight off the `CallSession` that already
 existed: `routing_stats()`, `event_log`, `handoff_log`; nothing new to track by hand).
 Deliberately a plain JSONL file, not a SQLite table: `call_log.py` lives in the core, so `cli.py`
@@ -434,18 +432,20 @@ and `voice/worker.py` can both log a call with zero extra dependencies — the s
 imports webapi's deps" promise as everywhere else in this README, just pointed the other way.
 `GET /api/calls/stats` and `GET /api/calls` (`webapi/app.py`) read and aggregate that file on
 request — no separate rollup to keep in sync, since the log is small by construction (a portfolio
-demo's worth of calls, not production volume). The dashboard itself (`web/src/components/Dashboard.tsx`,
+demo's worth of calls, not production volume). In shared mode (see "Hosting it") the same records go
+to the shared database's `calls` table instead. Every record carries its project, and Calls and
+Analytics filter by it. The dashboard itself (`web/src/components/Dashboard.tsx`,
 charts via [Recharts](https://recharts.org)) shows total calls/minutes/avg duration/handoff rate,
 calls-per-day, the routing-level breakdown (the same `gate_only`/`pattern`/`llm_fallback` split
-`eval` reports), and tool usage — with a toggle to exclude the agent builder's own test-route calls
+`eval` reports), and tool usage — with a toggle to exclude text tests
 from the aggregates, since those aren't real conversations.
 
-**"Server MCP" panel — dynamic tools, no restart, no hand-edited YAML.** Before this, the only way
+**MCP servers: dynamic tools, no restart, no hand-edited YAML.** Before this, the only way
 to add an MCP tool was to hand-edit `config/mcp_servers.yaml` and restart every process — invisible
 to the web UI entirely, even though the agent builder could already attach a tool id to an agent.
-The panel at the bottom of the "Agent builder" tab closes that gap: list, create, edit, and delete
-MCP servers from the browser, with every change usable on the very next turn. It follows the exact
-same dual-source-of-truth pattern as the agent tree above it: `webapi/models.py`'s `McpServerRow`
+The Tools page closes that gap: list, create, edit, and delete
+MCP servers from the browser, with every change usable on the very next turn. It follows the same
+seed-once pattern as the demo project: `webapi/models.py`'s `McpServerRow`
 table is seeded once from `config/mcp_servers.yaml` (`webapi/seed.py`'s `seed_mcp_if_empty()`), then
 edited independently of it — the YAML file still works unchanged for the CLI/tests, nothing about
 that path was touched.
@@ -454,8 +454,7 @@ The part worth being explicit about is how a server created through the browser 
 without restarting the backend process. `orchestrator.handle_turn()` calls `tools.get_tool()`
 against the module-level `tools.REGISTRY` dict directly, with no pluggable-registry parameter — and
 adding one would mean changing that already-tested core code to serve a newer, less-tested UI
-layer, the same ordering problem the agent tree's dual-source-of-truth note above already explains
-for a different file. So instead, `webapi/mcp_sync.py` mutates `tools.REGISTRY` *in place* at
+layer, the wrong order of operations for a newer layer. So instead, `webapi/mcp_sync.py` mutates `tools.REGISTRY` *in place* at
 runtime: it's called once at startup (after seeding) and again after every create/update/delete,
 and each time it adds/replaces every `"mcp:<name>"` entry from the current DB rows and removes any
 `"mcp:<name>"` entry that's no longer in the table. `GET /api/tools` needs no code change at all to
@@ -467,15 +466,14 @@ request cycle, same process, zero restart in between.
 **Security note, stated plainly rather than glossed over:** an MCP server's `command`/`args` is
 whatever gets handed to the OS to spawn a real local subprocess (`tools/mcp_tool.py`). Letting a
 browser client create one is, honestly, a "run an arbitrary command on this machine" capability.
-That's acceptable only under the threat model this backend already documents for itself — local
-dev only, CORS locked to the Vite dev server's own origin, no authentication — and the panel says
-so in the UI itself, not just here. Don't expose this API past localhost without adding real auth
-first.
+That's acceptable on your own machine, or on a host where only the owner can write: with
+`VOICE_ORCH_OWNER_PASSWORD` set, creating or editing an MCP server needs the owner's login, and a
+visitor can't reach it. Never run this backend on a public host without that password.
 
-**"Tool webhook (HTTP)" panel — custom tools over any REST endpoint, no code.** The other half of
+**Webhook tools (HTTP): custom tools over any REST endpoint, no code.** The other half of
 the "dynamic tools" promise MCP only partly delivered on (`docs/ROADMAP.md`'s D5): point a tool at
 any URL/method, and it's callable from an agent's `tools:` list like any built-in one
-(`tools/webhook_tool.py`'s `WebhookTool`). It follows the exact same shape as the MCP panel above
+(`tools/webhook_tool.py`'s `WebhookTool`). It follows the exact same shape as the MCP servers above
 it — `config/webhook_tools.yaml` seeds a `WebhookToolRow` table once, edited independently of the
 YAML from then on, synced into `tools.REGISTRY` in place by `webapi/webhook_sync.py` on every
 create/update/delete so a tool created in the browser is callable in the very same request cycle,
@@ -496,7 +494,7 @@ no restart. Three things worth being explicit about:
 - *Every execution is logged, independent of the main call log.* `data/webhook_log.jsonl`
   (`tools/webhook_log.py`) — same append-only JSONL shape as `call_log.py`, same reason: the tool
   itself (and anything importing it — the orchestrator, the CLI, the voice worker) must stay
-  installable with zero `webapi` dependencies. The panel's "Log esecuzioni" tab reads it back via
+  installable with zero `webapi` dependencies. The Tools page's execution log reads it back via
   `GET /api/webhook-tools/executions`.
 
 The bundled demo (`network_status`, wired into the `tech_internet` agent) is the one place this
@@ -508,15 +506,15 @@ as debt D14). `tests/test_webhook_tool.py` stays offline either way: it exercise
 `WebhookTool.run()` request-building code against an injected `httpx.MockTransport`, not the real
 network.
 
-**"Conversazioni" tab — transcripts, per-turn routing, post-call analysis.** Every logged call now
+**Calls: transcripts, per-turn routing, post-call analysis.** Every logged call now
 carries its full transcript (`call_log.transcript_from_session()`), and each turn says *why* it went
 where it did: the caller's turn carries its routing decision (level, candidates, latency, reason, and
 any handoff), the agent's reply carries the tools that grounded it. No new bookkeeping in the
 orchestrator was needed for this — `route()` already records exactly one `RoutingEvent` per turn, and
-handoff/tool events are bucketed into each exchange by timestamp. The tab lists calls, opens one as a
-chat-style transcript with that trace under every turn, and runs post-call analysis on it — the
+handoff/tool events are bucketed into each exchange by timestamp. The Calls page lists calls, opens one as a
+timeline with that trace under every turn, and runs post-call analysis on it — the
 equivalent of ElevenLabs' `evaluation.criteria` + `data_collection`. Criteria and data fields are
-edited in the same tab and apply to the whole family, not one agent: a call crosses several agents,
+edited on the same page and apply to the whole family, not one agent: a call crosses several agents,
 and it's the call that gets judged. `analysis.py` (core, standard library only) does the judging: with
 a real provider configured it's one LLM call asked for strict JSON, parsed defensively (a garbage reply
 is reported as a failed analysis, not silently replaced). A criterion is either written in natural
@@ -530,12 +528,12 @@ SQLite (`webapi/analysis_repository.py`) and feed a success-rate tile on the das
 over calls that were actually analyzed. The working roadmap and gap map against ElevenLabs live in
 [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
-**Knowledge base tab.** Documents are the files in `data/knowledge/`, the same ones the CLI and the
+**Knowledge.** Documents are the files in `data/knowledge/`, the same ones the CLI and the
 voice worker read, so there's no second copy to keep in step; SQLite only records where each came
-from. The tab adds a document from pasted text, a `.md`/`.txt` file, or a web page (the server
+from. The page adds a document from pasted text, a `.md`/`.txt` file, or a web page (the server
 fetches it, turns headings into sections, drops scripts and navigation, and refuses local or
 private-network addresses, redirects included). Each document shows how it's cut into chunks, and
-"Prova una domanda" runs a question through `knowledge.search()`, the exact function the
+A search box runs a question through `knowledge.search()`, the exact function the
 `knowledge_lookup` tool calls mid-call, with BM25 scores and, scoped to an agent, the two chunks
 that agent would actually get. Chunks scoring 0 are dropped, so an unrelated question grounds on
 nothing rather than on a random passage. Uploaded documents are git-ignored (they may be private):
@@ -560,6 +558,13 @@ VOICE_ORCH_PROVIDER=anthropic   # or openai, gemini, fake (default)
 ANTHROPIC_API_KEY=...           # matching key for whichever provider
 ```
 
+That variable is only the server's default. A project can name its own model for replies and a
+separate, usually smaller one for the router's fallback (`project:` block in `config/agents.yaml`,
+or the Models page), and any agent can override the reply model; an empty field means "inherit".
+`project.py` resolves the provider for every turn the same way in the CLI, the web API and the
+voice worker, and `cached_provider()` keeps one client per provider and model instead of one per
+turn.
+
 ## Hosting it (Render): web service + voice worker + Postgres
 
 `render.yaml` is a Render Blueprint for the whole platform: the web service (API and the built
@@ -569,12 +574,12 @@ managed Postgres they share (about $38–40/month at October 2026 list prices). 
 calls and the daily voice-minutes tally all live in that database, so what the owner saves in the
 builder answers the very next call, with no export and no restart. With
 `VOICE_ORCH_OWNER_PASSWORD` set, visitors get a read-only builder plus the demo features (the voice
-test within the daily cap, the knowledge preview, and the try-it box pinned to the free
+test within the daily cap, the knowledge preview, and text tests pinned to the free
 `FakeProvider`); every other write needs the owner's login. Without either variable, everything
 runs locally exactly as described below.
 
 To deploy: Render dashboard → New → Blueprint → this repository, then fill in the secrets it asks
-for (owner password, LiveKit, Deepgram, ElevenLabs). If an older standalone worker is still
+for (owner password, LiveKit, and the speech and model keys you want available). If an older standalone worker is still
 running on the same LiveKit project, suspend it first: with automatic dispatch, LiveKit would
 split calls between the two.
 
