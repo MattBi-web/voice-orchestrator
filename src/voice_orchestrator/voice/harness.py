@@ -31,7 +31,7 @@ from livekit.agents.voice import io
 from ..agents.registry import AgentSpec
 from ..llm import FakeProvider
 from ..state import CallSession
-from .agent import OrchestratorAgent
+from .agent import TURN_HANDLING, OrchestratorAgent
 from .bridge import VoiceBridge
 
 
@@ -196,7 +196,7 @@ async def _run_scripted_call(
     agent = OrchestratorAgent(
         bridge, voice_factory=lambda spec: record_synthesis(voice_factory(spec), spec.voice_id, syntheses)
     )
-    session = AgentSession(tts=default_tts)
+    session = AgentSession(tts=default_tts, turn_handling=TURN_HANDLING)
     output = CaptureAudioOutput(speed=playout_speed)
     session.output.audio = output
     closed = asyncio.Event()

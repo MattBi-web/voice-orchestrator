@@ -72,3 +72,21 @@ def test_call_publishes_turn_and_end_events_in_order():
     assert turns[2]["tools"] == ["end_call"]
     assert all(t["simulated"] for t in turns)  # the harness runs on FakeProvider
 
+
+
+def test_preemptive_generation_is_off_in_every_session():
+    """Blocco 9 (1.1): a speculative llm_node would run a whole orchestrator
+    turn (tools, CallSession, events) for a sentence the caller hasn't
+    finished. The harness session and the worker's both disable it."""
+    from pathlib import Path
+
+    import voice_orchestrator.voice as voice_pkg
+    from voice_orchestrator.voice.agent import TURN_HANDLING
+
+    assert TURN_HANDLING["preemptive_generation"]["enabled"] is False
+    call = _run(["ciao"])
+    assert call.session.options.preemptive_generation["enabled"] is False
+    # worker.py imports the Deepgram/Silero plugins, not installed in CI: check
+    # its source passes the same options to its AgentSession.
+    worker_src = (Path(voice_pkg.__file__).parent / "worker.py").read_text(encoding="utf-8")
+    assert "turn_handling=TURN_HANDLING" in worker_src

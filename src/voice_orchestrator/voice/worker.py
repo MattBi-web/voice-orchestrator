@@ -39,7 +39,7 @@ from livekit.plugins import silero
 from .. import call_events, call_log
 from ..project import DEFAULT_PROJECT, stt_for, tts_for
 from ..webapi.voice_token import project_from_room
-from .agent import OrchestratorAgent
+from .agent import TURN_HANDLING, OrchestratorAgent
 from .bridge import VoiceBridge, new_voice_bridge
 from .providers import choice_key, make_stt, make_tts
 from .usage_guard import UsageGuard
@@ -95,6 +95,9 @@ async def entrypoint(ctx: JobContext) -> None:
         vad=silero.VAD.load(),
         stt=make_stt(stt_choice),
         tts=make_tts(tts_choice),
+        # Preemptive generation off: a speculative turn would run tools and
+        # record the utterance before the caller has finished (agent.py).
+        turn_handling=TURN_HANDLING,
         # No real chat model here: OrchestratorAgent.llm_node() replaces it
         # (see agent.py's docstring). The agent itself carries a never-called
         # RouterLLM placeholder, because livekit-agents skips replying to a

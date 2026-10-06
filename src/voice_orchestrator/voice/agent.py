@@ -62,6 +62,20 @@ def elevenlabs_tts(**kwargs) -> elevenlabs.TTS:
         kwargs.setdefault("api_key", config.ELEVENLABS_API_KEY)
     return elevenlabs.TTS(**kwargs)
 
+# Blocco 9 (1.1): LiveKit's preemptive generation starts the reply before the
+# caller's turn is confirmed and throws it away if they keep talking. For a
+# plain LLM that only costs tokens; here llm_node runs a whole orchestrator
+# turn, which records the utterance in CallSession, runs tools (webhooks,
+# transfer_to_human, end_call) and publishes a turn event. A discarded
+# speculative turn would leave all of that behind: a duplicated or truncated
+# caller line, a webhook fired twice, a hangup scheduled for a sentence the
+# caller hadn't finished. So it's off, for every session (worker and the
+# test harness). Cost: the reply starts after end-of-turn instead of during
+# it, a few hundred ms. Turning it back on needs a two-phase turn (route
+# without side effects first, run tools and commit only once the turn is
+# confirmed) — see docs/ROADMAP.md, blocco 9.
+TURN_HANDLING = {"preemptive_generation": {"enabled": False}}
+
 _DEFAULT_INSTRUCTIONS = (
     "Voice orchestrator — this agent's replies are produced entirely by "
     "voice_orchestrator's own router/tools/memory stack (see bridge.py and "

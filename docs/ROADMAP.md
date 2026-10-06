@@ -3,7 +3,7 @@
 Documento di lavoro: tiene traccia di dove siamo, dove vogliamo arrivare e perché.
 Si aggiorna a ogni feature, nello stesso commit del codice.
 
-Ultimo aggiornamento: 2026-10-05 (blocco 8: progetti, modelli per pezzo della pipeline, interfaccia da piattaforma)
+Ultimo aggiornamento: 2026-10-06 (blocco 9, punto 1.1: preemptive generation spenta)
 
 ---
 
@@ -448,6 +448,34 @@ onesto**: si elencano più provider, ma si possono scegliere solo quelli install
 - **Limiti noti.** La stanza vocale non porta altro che il progetto: niente variabili per
   chiamata. Criteri di valutazione ancora globali, non per progetto.
 
+### Blocco 9 — Conversazione: VAD, turnaggio, interruzioni  🚧 in corso
+
+Perché (Matteo, 2026-10-06: "a livello di VAD e turnaggio come lo gestiamo?"). Finora non lo
+gestivamo: valevano i default di livekit-agents 1.8.4 (Silero con soglie di default, fine del
+turno scelta in automatico con 0,5–3 s di silenzio, interruzioni dopo 0,5 s di voce con ripresa
+dopo 2 s se falsa, preemptive generation attiva).
+
+- [x] **1.1 Preemptive generation spenta.** LiveKit comincia la risposta prima che il turno del
+      chiamante sia confermato e la butta se il chiamante continua. Da noi `llm_node` esegue un
+      turno intero dell'orchestratore, con effetti: registra la frase in `CallSession`, esegue i
+      tool (webhook, `transfer_to_human`, `end_call`), pubblica l'evento al browser. Un turno
+      speculativo scartato lasciava tutto questo dietro di sé (frase doppia o troncata, webhook
+      chiamato due volte, chiusura programmata su una frase non finita). Non emerso negli e2e perché
+      il chiamante finto dice una frase sola e tace. Ora `agent.TURN_HANDLING` la spegne nel worker e
+      nell'harness, con un test. Costo: la risposta parte a fine turno, qualche centinaio di ms in
+      più. Per riaccenderla serve un turno in due fasi (routing senza effetti, tool e commit solo a
+      turno confermato).
+- [ ] **1.2 Turnaggio configurabile** per progetto, con override per agente: rilevamento di fine
+      turno (VAD, endpointing dello STT, modello semantico multilingue di LiveKit), ritardi minimo e
+      massimo, sensibilità del VAD, interruzioni (sì/no, durata minima, ripresa dopo falsa
+      interruzione), silenzio (dopo quanto richiedere "è ancora lì?" e dopo quanto chiudere).
+- [ ] **1.3 Trascrizione fedele alle interruzioni:** in `CallSession` solo ciò che il chiamante ha
+      sentito, segnato come interrotto.
+- [ ] **1.4 Latenza per turno** (fine turno, primo token, primo audio, dalle metriche LiveKit) nella
+      timeline della chiamata e in Analytics.
+- [ ] **1.5 "Turn-taking"** come pezzo della pipeline, prima dello STT.
+- [ ] **2. Redesign dell'interfaccia** sui mock che Matteo sta raccogliendo (ElevenLabs, Vapi, …).
+
 ### Escluso di proposito (per ora)
 
 Telefonia (numeri, SIP, batch outbound), widget embeddabile, versioning con branch/merge,
@@ -543,4 +571,5 @@ infrastruttura che nessuna rifinitura della UI chiude.
 | `946dbc1` | Blocco 7, fase D: pagina Overview con dimostrazione dal vivo del router; corretti il trigger `problema` della demo, la regressione D10 sui testi vuoti e il prefisso dei tool MCP nelle risposte |
 | `055d21b` | Blocco 7, fase C: chiamata in vetrina — eventi di routing dal worker al browser sul data channel LiveKit, pagina di chiamata come timeline spiegata turno per turno, chiamata d'esempio generata dal router vero |
 | `a449661` | Blocco 7, fase B: vista Agents a tre colonne con pagina dell'agente a schede e pannello di test a più turni (`/api/test/conversations`), grafo senza groviglio, trascrizioni di Calls con la stessa timeline della chiamata |
-| (questo commit) | Blocco 8: progetti (agente singolo o workflow, da template), modelli di default per progetto con override per agente su STT/TTS/LLM e modello del router, catalogo provider onesto, pipeline visibile per agente, tab Developer (YAML/JSON, API), chiamate e analytics per progetto; il worker cambia STT e TTS al passaggio di agente (verificato in una stanza LiveKit vera) e una chiamata non resta muta se un modello fallisce |
+| `b3563ab` | Blocco 8: progetti (agente singolo o workflow, da template), modelli di default per progetto con override per agente su STT/TTS/LLM e modello del router, catalogo provider onesto, pipeline visibile per agente, tab Developer (YAML/JSON, API), chiamate e analytics per progetto; il worker cambia STT e TTS al passaggio di agente (verificato in una stanza LiveKit vera) e una chiamata non resta muta se un modello fallisce |
+| (questo commit) | Blocco 9, 1.1: preemptive generation di LiveKit spenta, perché un turno speculativo eseguiva tool e scriveva la sessione per frasi non finite |
