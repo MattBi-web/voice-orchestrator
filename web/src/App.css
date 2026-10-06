@@ -4431,6 +4431,16 @@ kbd {
 }
 
 .drawer .tp__head {
+  justify-content: flex-end;
+  padding: 10px 16px 0;
+}
+
+/* The drawer has its own title; keep only "New conversation". */
+.drawer .tp__head h2 {
+  display: none;
+}
+
+.drawer .tp__head:not(:has(button)) {
   display: none;
 }
 

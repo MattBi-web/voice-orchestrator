@@ -1,5 +1,47 @@
 # Voice Orchestrator
 
+A phone line staffed by a team of voice agents: a receptionist that hands each caller to the right
+specialist, built so that **most routing decisions never touch an LLM** and every decision can be
+explained turn by turn. Python core, real-time voice on LiveKit, a React builder on top.
+
+![A text test of the demo line: each turn shows which agent answered and why](docs/media/demo.gif)
+
+*The demo line (a fictional Italian telecom) in the builder's test panel. Each turn says which router
+level decided (gate, keyword pattern or LLM), who took the call and which tool ran. Replies are
+placeholders here because no model key is set; routing and tools are real.*
+
+### What's worth looking at
+
+- **The LLM is the router's last resort.** A deterministic gate, then a keyword scorer, then a
+  model only if both can't decide. On the bundled eval set 75% of turns are routed without any model
+  call, and every turn records which level decided it.
+- **A call never goes silent.** If the language model fails mid-call (bad key, outage), the caller
+  hears a short apology and the call goes on, instead of dead air.
+- **Turn-taking that doesn't act on half sentences.** LiveKit's preemptive generation is off: it
+  started replies, and ran tools, on sentences the caller hadn't finished.
+- **Every piece of the pipeline is a choice.** Speech-to-text, language model, router model and voice
+  are set per project and can be overridden per agent; the catalog only offers providers this server
+  can actually run.
+- **Debuggable without reading code.** Calls are shown as timelines in plain language: why this agent,
+  which keyword matched, which rule closed a door.
+- **Runs with zero API keys.** A fake provider drives the whole text path; the 200+ tests run offline.
+
+| Workflow: who can hand the call to whom | One agent: its pipeline, prompt and models |
+| --- | --- |
+| ![Workflow canvas](docs/media/workflow.png) | ![Agent page with its pipeline](docs/media/agent.png) |
+
+**Stack:** Python, FastAPI, SQLAlchemy (SQLite or Postgres), LiveKit Agents, Deepgram, ElevenLabs,
+Anthropic / OpenAI / Gemini, React + TypeScript + Vite.
+**Try it:** [`Setup`](#setup) for the terminal, [`Agent builder`](#agent-builder-a-web-ui-on-the-same-core)
+for the web UI.
+
+Built by Matteo Bigi, with Claude Code as a pair programmer. The product and architecture decisions
+are mine.
+
+---
+
+## How it's built
+
 A configurable **family of voice agents** — a router plus nested specialists — built around one
 idea: *most routing decisions should never touch an LLM*. The router, agent family, memory
 scoping, and tool framework are a provider-agnostic text core (`chat`/`route`/`eval` all run
