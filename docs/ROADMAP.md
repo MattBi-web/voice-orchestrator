@@ -576,28 +576,28 @@ infrastruttura che nessuna rifinitura della UI chiude.
 
 | Commit | Feature |
 |---|---|
-| `359062c` | Agent builder: backend FastAPI + frontend React |
-| `f3ee513` | Console di test vocale live |
-| `f49d27b` | Dashboard di analytics sul call log |
-| `11d9ed7` | `num_idle_processes=0` sul worker (mitigazione OOM) |
-| `2a5c8e9` | Gestione server MCP dalla UI |
-| `f419011` | Blocco 1: trascrizioni per turno, tab Conversazioni, criteri + analisi post-call |
-| `b094f8a` | Fix D2: `POST /api/agents/export` — il builder scrive su `agents.yaml` su richiesta |
-| `c55fea8` | Blocco 2 (modello agente più profondo: first_message, LLM e voce per agente, tool `end_call`, picker veri) + blocco 4 (vista a grafo con drag-and-drop, duplica, ricerca, badge di livello router) |
-| `5ab1db0` | D13: reparenting nel grafo — trascinare un nodo sopra un altro ne cambia il genitore (con conferma e anti-ciclo) |
-| `1b6e10d` | Blocco 3: tool webhook HTTP (URL/metodo/header/parametri, secrets via variabile d'ambiente, log esecuzioni) — risolve anche D5 |
-| `a0e9dde` | D3 (try-it sul provider configurato), D10 (testo per il chiamante separato dall'istruzione per l'LLM), D11 (criteri strutturali, niente verdetti euristici sui criteri in linguaggio naturale), D15 (`sync_columns()`: un DB locale vecchio torna ad aprirsi) |
-| `8df57c3` | Blocco 5: knowledge base da UI (documenti da testo/file/URL, vista dei chunk, anteprima del retrieval, picker nel form agente; ricerca condivisa con il tool, cache invalidata alla modifica, chunk a punteggio 0 scartati) |
-| `8a429cb` | D9 (tab caricate su richiesta: chunk iniziale 1.172 → 261 kB) + D12 (voce per agente e chiusura dopo il saluto verificate su una chiamata LiveKit reale; corretti due bug che rompevano ogni chiamata vera: nessuna risposta senza LLM configurato, chiave ElevenLabs col nome sbagliato) |
-| `58ed2f4` | Piano del blocco 6 (piattaforma online: web + worker + Postgres su Render) aggiunto alla roadmap, nessun cambio di codice |
-| `ab149aa` | Blocco 6, passo 1: modalità condivisa (`VOICE_ORCH_DATABASE_URL`, Postgres o SQLite): chiamate, log webhook, minuti vocali e testo della knowledge nel DB; suite verde anche su Postgres |
-| `6592710` | Blocco 6, passo 2: il worker legge famiglia e tool dal DB a ogni chiamata (D4 chiuso in modalità condivisa); FastAPI serve anche il frontend compilato |
-| `ef0b88d` | Blocco 6, passo 3: accesso owner/visitatori (login, sola lettura, try-it gratuito per i visitatori), immagini Docker per web e worker, `render.yaml` (web + worker + Postgres). Ciclo completo verificato in locale con una chiamata LiveKit vera |
-| `216d3be` | Blocco 7, fase A: nuova struttura con menu laterale, pagina Tools, sistema visivo (Plex, verde centralino, colori dei livelli del router), interfaccia e messaggi del backend in inglese |
-| `946dbc1` | Blocco 7, fase D: pagina Overview con dimostrazione dal vivo del router; corretti il trigger `problema` della demo, la regressione D10 sui testi vuoti e il prefisso dei tool MCP nelle risposte |
-| `055d21b` | Blocco 7, fase C: chiamata in vetrina — eventi di routing dal worker al browser sul data channel LiveKit, pagina di chiamata come timeline spiegata turno per turno, chiamata d'esempio generata dal router vero |
-| `a449661` | Blocco 7, fase B: vista Agents a tre colonne con pagina dell'agente a schede e pannello di test a più turni (`/api/test/conversations`), grafo senza groviglio, trascrizioni di Calls con la stessa timeline della chiamata |
-| `b3563ab` | Blocco 8: progetti (agente singolo o workflow, da template), modelli di default per progetto con override per agente su STT/TTS/LLM e modello del router, catalogo provider onesto, pipeline visibile per agente, tab Developer (YAML/JSON, API), chiamate e analytics per progetto; il worker cambia STT e TTS al passaggio di agente (verificato in una stanza LiveKit vera) e una chiamata non resta muta se un modello fallisce |
-| `38cd5d6` | Blocco 9, 1.1: preemptive generation di LiveKit spenta, perché un turno speculativo eseguiva tool e scriveva la sessione per frasi non finite |
-| `565ab99` | Blocco 9, 2: redesign — sidebar a due livelli, barra in alto con azioni, palette ⌘K, pagina dell'agente a due colonne con test laterale, workflow su tela, overview con numeri, riquadri crea, stile monocromo con avatar orb |
-| (questo commit) | Test indipendenti dalla shell: `conftest` toglie `VOICE_ORCH_*`, `LIVEKIT_*` e le chiavi `*_API_KEY` prima degli import (lanciati dal terminale del server davano 60 falsi fallimenti: 401, voce "configurata", shared mode) e ogni test ritrova il database di prima |
+| `02c3ee3` | Agent builder: backend FastAPI + frontend React |
+| `f69b75c` | Console di test vocale live |
+| `fda92ab` | Dashboard di analytics sul call log |
+| `ef9b9e0` | `num_idle_processes=0` sul worker (mitigazione OOM) |
+| `d625446` | Gestione server MCP dalla UI |
+| `48d5d36` | Blocco 1: trascrizioni per turno, tab Conversazioni, criteri + analisi post-call |
+| `83e5daf` | Fix D2: `POST /api/agents/export` — il builder scrive su `agents.yaml` su richiesta |
+| `8acbfdd` | Blocco 2 (modello agente più profondo: first_message, LLM e voce per agente, tool `end_call`, picker veri) + blocco 4 (vista a grafo con drag-and-drop, duplica, ricerca, badge di livello router) |
+| `297fd41` | D13: reparenting nel grafo — trascinare un nodo sopra un altro ne cambia il genitore (con conferma e anti-ciclo) |
+| `4e9782c` | Blocco 3: tool webhook HTTP (URL/metodo/header/parametri, secrets via variabile d'ambiente, log esecuzioni) — risolve anche D5 |
+| `0348b0e` | D3 (try-it sul provider configurato), D10 (testo per il chiamante separato dall'istruzione per l'LLM), D11 (criteri strutturali, niente verdetti euristici sui criteri in linguaggio naturale), D15 (`sync_columns()`: un DB locale vecchio torna ad aprirsi) |
+| `94c6170` | Blocco 5: knowledge base da UI (documenti da testo/file/URL, vista dei chunk, anteprima del retrieval, picker nel form agente; ricerca condivisa con il tool, cache invalidata alla modifica, chunk a punteggio 0 scartati) |
+| `6ecc9b5` | D9 (tab caricate su richiesta: chunk iniziale 1.172 → 261 kB) + D12 (voce per agente e chiusura dopo il saluto verificate su una chiamata LiveKit reale; corretti due bug che rompevano ogni chiamata vera: nessuna risposta senza LLM configurato, chiave ElevenLabs col nome sbagliato) |
+| `373493e` | Piano del blocco 6 (piattaforma online: web + worker + Postgres su Render) aggiunto alla roadmap, nessun cambio di codice |
+| `0dba2e8` | Blocco 6, passo 1: modalità condivisa (`VOICE_ORCH_DATABASE_URL`, Postgres o SQLite): chiamate, log webhook, minuti vocali e testo della knowledge nel DB; suite verde anche su Postgres |
+| `85c4e6e` | Blocco 6, passo 2: il worker legge famiglia e tool dal DB a ogni chiamata (D4 chiuso in modalità condivisa); FastAPI serve anche il frontend compilato |
+| `4e416f0` | Blocco 6, passo 3: accesso owner/visitatori (login, sola lettura, try-it gratuito per i visitatori), immagini Docker per web e worker, `render.yaml` (web + worker + Postgres). Ciclo completo verificato in locale con una chiamata LiveKit vera |
+| `f88cb4b` | Blocco 7, fase A: nuova struttura con menu laterale, pagina Tools, sistema visivo (Plex, verde centralino, colori dei livelli del router), interfaccia e messaggi del backend in inglese |
+| `8ff7909` | Blocco 7, fase D: pagina Overview con dimostrazione dal vivo del router; corretti il trigger `problema` della demo, la regressione D10 sui testi vuoti e il prefisso dei tool MCP nelle risposte |
+| `671a434` | Blocco 7, fase C: chiamata in vetrina — eventi di routing dal worker al browser sul data channel LiveKit, pagina di chiamata come timeline spiegata turno per turno, chiamata d'esempio generata dal router vero |
+| `fda461e` | Blocco 7, fase B: vista Agents a tre colonne con pagina dell'agente a schede e pannello di test a più turni (`/api/test/conversations`), grafo senza groviglio, trascrizioni di Calls con la stessa timeline della chiamata |
+| `42a6d37` | Blocco 8: progetti (agente singolo o workflow, da template), modelli di default per progetto con override per agente su STT/TTS/LLM e modello del router, catalogo provider onesto, pipeline visibile per agente, tab Developer (YAML/JSON, API), chiamate e analytics per progetto; il worker cambia STT e TTS al passaggio di agente (verificato in una stanza LiveKit vera) e una chiamata non resta muta se un modello fallisce |
+| `c0d0f79` | Blocco 9, 1.1: preemptive generation di LiveKit spenta, perché un turno speculativo eseguiva tool e scriveva la sessione per frasi non finite |
+| `11098e4` | Blocco 9, 2: redesign — sidebar a due livelli, barra in alto con azioni, palette ⌘K, pagina dell'agente a due colonne con test laterale, workflow su tela, overview con numeri, riquadri crea, stile monocromo con avatar orb |
+| `eb22a0c` | Test indipendenti dalla shell: `conftest` toglie `VOICE_ORCH_*`, `LIVEKIT_*` e le chiavi `*_API_KEY` prima degli import (lanciati dal terminale del server davano 60 falsi fallimenti: 401, voce "configurata", shared mode) e ogni test ritrova il database di prima |
