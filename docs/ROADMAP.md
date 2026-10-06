@@ -3,7 +3,7 @@
 Documento di lavoro: tiene traccia di dove siamo, dove vogliamo arrivare e perché.
 Si aggiorna a ogni feature, nello stesso commit del codice.
 
-Ultimo aggiornamento: 2026-10-06 (blocco 9, punto 1.1: preemptive generation spenta)
+Ultimo aggiornamento: 2026-10-06 (blocco 9, punto 2: redesign dell'interfaccia)
 
 ---
 
@@ -474,7 +474,33 @@ dopo 2 s se falsa, preemptive generation attiva).
 - [ ] **1.4 Latenza per turno** (fine turno, primo token, primo audio, dalle metriche LiveKit) nella
       timeline della chiamata e in Analytics.
 - [ ] **1.5 "Turn-taking"** come pezzo della pipeline, prima dello STT.
-- [ ] **2. Redesign dell'interfaccia** sui mock che Matteo sta raccogliendo (ElevenLabs, Vapi, …).
+- [x] **2. Redesign dell'interfaccia**, sugli screenshot di ElevenLabs Agents che Matteo ha mandato
+      (2026-10-06). Ripresi gli schemi, non il marchio: niente logo, nomi o immagini loro; restano
+      nostri il nome, il marchio con i tre colori del router e la pipeline.
+      **Struttura:** sidebar a due livelli. Area di lavoro: ricerca ⌘K, Overview, Start a call, il gruppo
+      *Agents* (gli agenti con il loro avatar e un "+"), *Configure* (Knowledge, Tools), *Monitor*
+      (Calls, Analytics). Dentro un agente la sidebar cambia: "Back to workspace", scheda dell'agente,
+      Overview, *Configure* (Agents, Workflow solo per i workflow, Models), *Monitor* (Calls,
+      Developer), "Call this agent". Barra in alto con il percorso e le azioni della pagina, che le
+      pagine ci mettono dentro (`shell.tsx`, `TopbarActions` via portal): *Test*, *Call*, *Save* scuro e
+      attivo solo con modifiche (anche ⌘S). **Palette ⌘K** per saltare a pagine, agenti e loro sezioni.
+      **Pagina dell'agente** a due colonne invece delle schede: a sinistra il system prompt grande,
+      il primo messaggio, nome e descrizione, routing, tool, knowledge e la zona per eliminarlo; a
+      destra, fisse durante lo scroll, le schede dei modelli (voce, riconoscimento vocale, LLM) con
+      "Default / Override". Sopra, la pipeline; un clic porta alla sezione giusta. Per un workflow
+      una colonna con l'albero degli agenti (con "+" per aggiungere uno specialista); per un agente
+      singolo un invito a trasformarlo in workflow. **Test** come pannello laterale apribile da ogni
+      sezione dell'agente (la pagina si sposta per non coprirlo sugli schermi larghi).
+      **Workflow** su tela a puntini con barra strumenti e legenda fluttuanti e un pannello a
+      destra con l'agente selezionato. **Overview dell'agente**: numeri chiave, "Who decided each
+      turn" (barra nei colori dei livelli), la pipeline del receptionist, le schede degli agenti.
+      **Overview generale**: hero, riga di numeri, "Jump back in", demo del router.
+      **Knowledge e Tools** con i riquadri "crea" (Add URL / Add file / Create text; Add webhook
+      tool / Add MCP server). Analytics con la riga di numeri unica. **Stile:** monocromo chiaro,
+      pulsanti primari neri, titoli grandi e leggeri, bordi sottili, angoli più morbidi (10/16 px),
+      focus nero; il verde resta solo per "dal vivo" e "salvato". Ogni agente ha un **avatar "orb"**
+      generato dal suo id. Verificato con screenshot su desktop, mobile e da visitatore, e il flusso
+      completo: nuovo agente → prompt → ⌘S → aggiungi specialista → diventa workflow.
 
 ### Escluso di proposito (per ora)
 
@@ -572,4 +598,5 @@ infrastruttura che nessuna rifinitura della UI chiude.
 | `055d21b` | Blocco 7, fase C: chiamata in vetrina — eventi di routing dal worker al browser sul data channel LiveKit, pagina di chiamata come timeline spiegata turno per turno, chiamata d'esempio generata dal router vero |
 | `a449661` | Blocco 7, fase B: vista Agents a tre colonne con pagina dell'agente a schede e pannello di test a più turni (`/api/test/conversations`), grafo senza groviglio, trascrizioni di Calls con la stessa timeline della chiamata |
 | `b3563ab` | Blocco 8: progetti (agente singolo o workflow, da template), modelli di default per progetto con override per agente su STT/TTS/LLM e modello del router, catalogo provider onesto, pipeline visibile per agente, tab Developer (YAML/JSON, API), chiamate e analytics per progetto; il worker cambia STT e TTS al passaggio di agente (verificato in una stanza LiveKit vera) e una chiamata non resta muta se un modello fallisce |
-| (questo commit) | Blocco 9, 1.1: preemptive generation di LiveKit spenta, perché un turno speculativo eseguiva tool e scriveva la sessione per frasi non finite |
+| `38cd5d6` | Blocco 9, 1.1: preemptive generation di LiveKit spenta, perché un turno speculativo eseguiva tool e scriveva la sessione per frasi non finite |
+| (questo commit) | Blocco 9, 2: redesign — sidebar a due livelli, barra in alto con azioni, palette ⌘K, pagina dell'agente a due colonne con test laterale, workflow su tela, overview con numeri, riquadri crea, stile monocromo con avatar orb |

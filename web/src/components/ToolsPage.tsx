@@ -1,3 +1,6 @@
+import { useState } from 'react'
+import { useOwner } from '../auth'
+import { Icon } from './Icon'
 import { McpServersPanel } from './McpServersPanel'
 import { WebhookToolsPanel } from './WebhookToolsPanel'
 
@@ -11,8 +14,23 @@ const BUILT_IN: { id: string; what: string }[] = [
 /** Every action an agent can take, in one place: built-ins, HTTP webhooks,
  * MCP servers. Which agent uses which tool is set on the agent itself. */
 export function ToolsPage({ onChanged }: { onChanged: () => void }) {
+  const owner = useOwner()
+  const [webhook, setWebhook] = useState(0)
+  const [mcp, setMcp] = useState(0)
   return (
     <div className="tools-page">
+      {owner && (
+        <div className="tiles">
+          <button type="button" className="tile" onClick={() => setWebhook((n) => n + 1)}>
+            <Icon name="webhook" />
+            Add webhook tool
+          </button>
+          <button type="button" className="tile" onClick={() => setMcp((n) => n + 1)}>
+            <Icon name="server" />
+            Add MCP server
+          </button>
+        </div>
+      )}
       <section className="tools-page__section">
         <h2>Built-in</h2>
         <p className="section-lede">Always available. Add them to an agent from its Tools field.</p>
@@ -25,8 +43,8 @@ export function ToolsPage({ onChanged }: { onChanged: () => void }) {
           ))}
         </ul>
       </section>
-      <WebhookToolsPanel onChanged={onChanged} />
-      <McpServersPanel onChanged={onChanged} />
+      <WebhookToolsPanel onChanged={onChanged} createSignal={webhook} />
+      <McpServersPanel onChanged={onChanged} createSignal={mcp} />
     </div>
   )
 }

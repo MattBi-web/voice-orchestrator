@@ -1,23 +1,25 @@
-/** Hash routes (blocco 8), so a project, a tab or an agent has a link that
- * can be shared or reloaded:
- *   #/                         overview
- *   #/agents                   all agents (projects)
- *   #/agents/<pid>             a project, Build tab
- *   #/agents/<pid>/<tab>[/<agent>]
- *   #/call[/<pid>]             start a call
- *   #/knowledge  #/tools  #/calls  #/analytics */
+/** Hash routes, so every page, agent and setting has a link that can be
+ * shared or reloaded:
+ *   #/                                 overview
+ *   #/agents                           all agents (projects)
+ *   #/new-agent                        all agents, with the create dialog open
+ *   #/agents/<pid>[/<tab>[/<agent>]]   inside an agent (project)
+ *   #/call[/<pid>]                     start a call
+ *   #/calls[/<call id>]  #/knowledge  #/tools  #/analytics
+ * Redesign (blocco 9, 2): a project's sections are pages of their own in
+ * the agent-scoped sidebar. "build" (blocco 8 links) opens "agent". */
 
-export type ProjectTab = 'build' | 'models' | 'calls' | 'developer'
+export type ProjectTab = 'overview' | 'agent' | 'workflow' | 'models' | 'calls' | 'developer'
 
 export type Route =
   | { view: 'overview' }
-  | { view: 'agents' }
+  | { view: 'agents'; create?: boolean }
   | { view: 'project'; pid: string; tab: ProjectTab; agent?: string }
   | { view: 'call'; pid?: string }
   | { view: 'calls'; call?: string }
   | { view: 'knowledge' | 'tools' | 'analytics' }
 
-const TABS: ProjectTab[] = ['build', 'models', 'calls', 'developer']
+const TABS: ProjectTab[] = ['overview', 'agent', 'workflow', 'models', 'calls', 'developer']
 
 export function parseRoute(hash: string): Route {
   const parts = hash.replace(/^#\/?/, '').split('/').filter(Boolean).map(decodeURIComponent)
@@ -25,9 +27,13 @@ export function parseRoute(hash: string): Route {
   switch (head) {
     case undefined:
       return { view: 'overview' }
-    case 'agents':
+    case 'new-agent':
+      return { view: 'agents', create: true }
+    case 'agents': {
       if (!a) return { view: 'agents' }
-      return { view: 'project', pid: a, tab: TABS.includes(b as ProjectTab) ? (b as ProjectTab) : 'build', agent: c }
+      const tab = b === 'build' ? 'agent' : TABS.includes(b as ProjectTab) ? (b as ProjectTab) : 'agent'
+      return { view: 'project', pid: a, tab, agent: c }
+    }
     case 'call':
       return { view: 'call', pid: a }
     case 'calls':
@@ -46,7 +52,7 @@ export function routeHash(r: Route): string {
     case 'overview':
       return '#/'
     case 'agents':
-      return '#/agents'
+      return r.create ? '#/new-agent' : '#/agents'
     case 'project':
       return `#/agents/${encodeURIComponent(r.pid)}/${r.tab}${r.agent ? `/${encodeURIComponent(r.agent)}` : ''}`
     case 'call':

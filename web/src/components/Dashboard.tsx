@@ -16,9 +16,9 @@ function useChartPalette() {
 
 function StatTile({ label, value }: { label: string; value: string }) {
   return (
-    <div className="stat-tile">
-      <div className="stat-tile__value">{value}</div>
-      <div className="stat-tile__label">{label}</div>
+    <div className="kpi">
+      <span>{label}</span>
+      <strong>{value}</strong>
     </div>
   )
 }
@@ -138,7 +138,7 @@ export function Dashboard({ onOpenCall }: { onOpenCall: (callId: string) => void
         </p>
       ) : (
         <>
-          <div className="dashboard__tiles">
+          <div className="kpis kpis--5">
             <StatTile label="Calls" value={String(stats?.total_calls ?? 0)} />
             <StatTile label="Minutes" value={(stats?.total_minutes ?? 0).toFixed(1)} />
             <StatTile label="Average length (s)" value={(stats?.avg_duration_seconds ?? 0).toFixed(1)} />

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { McpServer } from '../types'
 import { api, ApiError } from '../api'
 import { ListEditor } from './ListEditor'
@@ -138,14 +138,23 @@ interface Props {
   // GET /api/tools — a server added here must show up as "mcp:<name>" in
   // ToolsEditor's dropdown immediately, with no reload of the page.
   onChanged: () => void
+  /** Bumped by the Tools page's "Add …" tile: open the create form here. */
+  createSignal?: number
 }
 
-export function McpServersPanel({ onChanged }: Props) {
+export function McpServersPanel({ onChanged, createSignal = 0 }: Props) {
+  const panelRef = useRef<HTMLElement | null>(null)
   const owner = useOwner()
   const [servers, setServers] = useState<McpServer[]>([])
   const [selection, setSelection] = useState<Selection>({ kind: 'none' })
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    if (!createSignal) return
+    setSelection({ kind: 'create' })
+    panelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }, [createSignal])
 
   const load = () => {
     api
@@ -171,7 +180,7 @@ export function McpServersPanel({ onChanged }: Props) {
   const editing = selection.kind === 'edit' ? servers.find((s) => s.name === selection.name) : undefined
 
   return (
-    <section className="mcp-panel">
+    <section className="mcp-panel" ref={panelRef}>
       <div className="mcp-panel__header">
         <h2>MCP servers</h2>
         {owner && selection.kind === 'none' && (

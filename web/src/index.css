@@ -9,14 +9,14 @@
 :root {
   color-scheme: light;
 
-  --ink: #16202e;
-  --ink-2: #4a5566;
-  --ink-3: #7a8494;
+  --ink: #17191c;
+  --ink-2: #4b5058;
+  --ink-3: #868b94;
   --bg: #ffffff;
-  --surface: #f5f7f9;
-  --surface-2: #eceff3;
-  --line: #dde2e8;
-  --line-strong: #c6cdd6;
+  --surface: #f7f7f8;
+  --surface-2: #eeeef0;
+  --line: #e6e6e9;
+  --line-strong: #d3d3d8;
 
   --green: #0e6e55;
   --green-hover: #0b5a46;
@@ -34,8 +34,8 @@
 
   --sans: 'IBM Plex Sans', system-ui, sans-serif;
   --mono: 'IBM Plex Mono', ui-monospace, monospace;
-  --radius: 6px;
-  --radius-lg: 10px;
+  --radius: 10px;
+  --radius-lg: 16px;
 
   /* Legacy names still used by component styles. */
   --text: var(--ink-2);
@@ -43,8 +43,8 @@
   --bg-muted: var(--surface);
   --border: var(--line);
   --code-bg: var(--surface-2);
-  --accent: var(--green);
-  --accent-bg: var(--green-tint);
+  --accent: var(--ink);
+  --accent-bg: var(--surface-2);
 
   font: 15px/1.55 var(--sans);
   color: var(--ink-2);
@@ -75,9 +75,10 @@ h4 {
 }
 
 h1 {
-  font-size: 26px;
-  font-weight: 600;
-  line-height: 1.2;
+  font-size: 30px;
+  font-weight: 500;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
 }
 
 h2 {
@@ -101,7 +102,8 @@ p {
 }
 
 a {
-  color: var(--green);
+  color: var(--ink);
+  text-underline-offset: 3px;
 }
 
 code {
@@ -130,18 +132,30 @@ button {
 
 button:not([class]),
 .btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
   font-weight: 500;
   border-radius: var(--radius);
-  border: 1px solid var(--green);
-  background: var(--green);
+  border: 1px solid var(--ink);
+  background: var(--ink);
   color: #fff;
   padding: 7px 14px;
+  min-height: 36px;
+  text-decoration: none;
   transition: background-color 0.12s;
 }
 
 button:not([class]):hover:not(:disabled),
 .btn-primary:hover:not(:disabled) {
-  background: var(--green-hover);
+  background: #34373c;
+}
+
+.btn-primary svg,
+.btn-secondary svg {
+  width: 16px;
+  height: 16px;
 }
 
 button:disabled {
@@ -154,7 +168,7 @@ a:focus-visible,
 input:focus-visible,
 select:focus-visible,
 textarea:focus-visible {
-  outline: 2px solid var(--green);
+  outline: 2px solid var(--ink);
   outline-offset: 2px;
 }
 
@@ -167,8 +181,28 @@ select {
   background: var(--bg);
   border: 1px solid var(--line-strong);
   border-radius: var(--radius);
-  padding: 7px 10px;
+  padding: 8px 12px;
   width: 100%;
+  transition: border-color 0.12s, box-shadow 0.12s;
+}
+
+input:hover:not(:disabled),
+textarea:hover:not(:disabled),
+select:hover:not(:disabled) {
+  border-color: #b9b9c0;
+}
+
+input:focus,
+textarea:focus,
+select:focus {
+  border-color: var(--ink);
+  box-shadow: 0 0 0 3px rgb(23 25 28 / 8%);
+}
+
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: none;
 }
 
 input:disabled,
@@ -185,7 +219,7 @@ textarea {
 input[type='checkbox'],
 input[type='radio'] {
   width: auto;
-  accent-color: var(--green);
+  accent-color: var(--ink);
 }
 
 ::placeholder {

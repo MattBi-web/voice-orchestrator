@@ -1,25 +1,17 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { Agent, CallStats, TestRouteResult } from '../types'
+import type { Agent, CallStats, Project, TestRouteResult } from '../types'
 import { api, ApiError } from '../api'
 import { flatten } from '../tree'
 import { describeRule, LEVELS } from './LevelChip'
 import { EXAMPLES } from '../examples'
 import { useTrees } from '../trees'
+import { Orb } from './Orb'
+import { Icon } from './Icon'
+import { useOwner } from '../auth'
 
 type Go = (view: 'call' | 'agents' | 'knowledge' | 'tools' | 'calls' | 'analytics') => void
 
 
-const SECTIONS: { view: Parameters<Go>[0]; title: string; what: string }[] = [
-  {
-    view: 'agents',
-    title: 'Agents',
-    what: 'Create a single agent or a workflow, pick the speech, language and voice models, and see how each agent is built.',
-  },
-  { view: 'knowledge', title: 'Knowledge', what: 'Documents agents answer from, and a way to see which passages a question retrieves.' },
-  { view: 'tools', title: 'Tools', what: 'Hand over to a human, end the call, call a webhook or an MCP server.' },
-  { view: 'calls', title: 'Calls', what: 'Every call turn by turn, with the router level behind each decision and an evaluation.' },
-  { view: 'analytics', title: 'Analytics', what: 'Volume, how often each router level decides, tool runs and evaluation results.' },
-]
 
 interface Step {
   key: 'gate_only' | 'pattern' | 'llm_fallback'
@@ -229,26 +221,12 @@ function RouterDemo({ root }: { root: Agent | null }) {
   )
 }
 
-function NoModelShare({ stats }: { stats: CallStats | null }) {
-  if (!stats) return null
-  const totals = stats.resolved_by_totals
-  const all = Object.values(totals).reduce((a, b) => a + b, 0)
-  if (all < 5) return null
-  const cheap = (totals.gate_only ?? 0) + (totals.pattern ?? 0)
-  const pct = Math.round((cheap / all) * 100)
-  return (
-    <p className="ov-stat">
-      Across the {stats.total_calls} recorded calls here, <strong>{pct}%</strong> of routing decisions ({cheap} of {all})
-      were made without calling a language model.
-    </p>
-  )
-}
-
-export function Overview({ go }: { root?: Agent | null; go: Go }) {
-  // The landing page runs on the demo project.
+export function Overview({ go, projects = [] }: { go: Go; projects?: Project[] }) {
+  // The landing page's router demo runs on the demo project.
   const root = useTrees(['demo']).demo ?? null
   const [stats, setStats] = useState<CallStats | null>(null)
   const count = useMemo(() => flatten(root).length, [root])
+  const owner = useOwner()
 
   useEffect(() => {
     api
@@ -256,6 +234,10 @@ export function Overview({ go }: { root?: Agent | null; go: Go }) {
       .then(setStats)
       .catch(() => setStats(null))
   }, [])
+
+  const totals = stats?.resolved_by_totals ?? {}
+  const decisions = Object.values(totals).reduce((a, b) => a + b, 0)
+  const cheap = (totals.gate_only ?? 0) + (totals.pattern ?? 0)
 
   return (
     <div className="ov">
@@ -270,13 +252,61 @@ export function Overview({ go }: { root?: Agent | null; go: Go }) {
         </p>
         <div className="ov-hero__actions">
           <button type="button" className="btn-primary" onClick={() => go('call')}>
+            <Icon name="phone" />
             Start a call
           </button>
           <button type="button" className="btn-secondary" onClick={() => go('agents')}>
-            Explore the agents
+            Explore the demo agent
           </button>
+          {owner && (
+            <a className="btn-secondary" href="#/new-agent">
+              <Icon name="plus" />
+              New agent
+            </a>
+          )}
         </div>
       </header>
+
+      <div className="kpis">
+        <div className="kpi">
+          <span>Agents</span>
+          <strong>{projects.length || '—'}</strong>
+        </div>
+        <div className="kpi">
+          <span>Calls and tests</span>
+          <strong>{stats ? stats.total_calls : '—'}</strong>
+        </div>
+        <div className="kpi">
+          <span>Average length</span>
+          <strong>{stats ? `${stats.avg_duration_seconds.toFixed(0)} s` : '—'}</strong>
+        </div>
+        <div className="kpi">
+          <span>Decided without a model</span>
+          <strong>{decisions ? `${Math.round((cheap / decisions) * 100)}%` : '—'}</strong>
+        </div>
+      </div>
+
+      {projects.length > 0 && (
+        <section className="ov-jump" aria-labelledby="ov-jump-title">
+          <h2 id="ov-jump-title">Jump back in</h2>
+          <ul className="cards">
+            {projects.slice(0, 6).map((p) => (
+              <li key={p.id}>
+                <a className="card" href={`#/agents/${encodeURIComponent(p.id)}/agent`}>
+                  <Orb seed={p.id} size={30} />
+                  <span>
+                    <strong>{p.name}</strong>
+                    <small>
+                      {p.kind === 'single' ? 'Single agent' : `Workflow, ${p.agent_count} agents`},{' '}
+                      {p.call_count ? `${p.call_count} call${p.call_count === 1 ? '' : 's'}` : 'no calls yet'}
+                    </small>
+                  </span>
+                </a>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       <RouterDemo root={root} />
 
@@ -305,21 +335,6 @@ export function Overview({ go }: { root?: Agent | null; go: Go }) {
             </p>
           </li>
         </ol>
-        <NoModelShare stats={stats} />
-      </section>
-
-      <section className="ov-inside" aria-labelledby="ov-inside-title">
-        <h2 id="ov-inside-title">What's inside</h2>
-        <ul className="ov-inside__list">
-          {SECTIONS.map((s) => (
-            <li key={s.view}>
-              <button type="button" className="ov-inside__link" onClick={() => go(s.view)}>
-                {s.title}
-              </button>
-              <span>{s.what}</span>
-            </li>
-          ))}
-        </ul>
       </section>
 
       <footer className="ov-foot">

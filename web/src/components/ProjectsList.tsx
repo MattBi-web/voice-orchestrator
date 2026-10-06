@@ -3,20 +3,25 @@ import type { Catalog, Project, Template } from '../types'
 import { api, ApiError } from '../api'
 import { useOwner } from '../auth'
 import { formatWhen } from './LevelChip'
+import { Orb } from './Orb'
 
 interface Props {
   catalog: Catalog | null
+  /** #/new-agent: open with the create dialog showing. */
+  creating?: boolean
+  onCloseCreate?: () => void
   onOpen: (pid: string) => void
   onCall: (pid: string) => void
 }
 
 /** Blocco 8: the agents page. Each row is one phone line: a single agent or
  * a workflow of agents, with the models it runs on. */
-export function ProjectsList({ catalog, onOpen, onCall }: Props) {
+export function ProjectsList({ catalog, creating: createRoute = false, onCloseCreate, onOpen, onCall }: Props) {
   const owner = useOwner()
   const [projects, setProjects] = useState<Project[] | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [creating, setCreating] = useState(false)
+  const [creating, setCreating] = useState(createRoute)
+  useEffect(() => setCreating(createRoute), [createRoute])
 
   useEffect(() => {
     api
@@ -90,7 +95,7 @@ export function ProjectsList({ catalog, onOpen, onCall }: Props) {
             {projects.map((p) => (
               <tr key={p.id} onClick={() => onOpen(p.id)}>
                 <td className="projects__name">
-                  <Glyph kind={p.kind} count={p.agent_count} />
+                  <Orb seed={p.id} size={30} />
                   <span>
                     <a
                       href={`#/agents/${encodeURIComponent(p.id)}/build`}
@@ -125,7 +130,15 @@ export function ProjectsList({ catalog, onOpen, onCall }: Props) {
         </table>
       )}
 
-      {creating && <NewAgentDialog onClose={() => setCreating(false)} onCreated={(pid) => onOpen(pid)} />}
+      {creating && (
+        <NewAgentDialog
+          onClose={() => {
+            setCreating(false)
+            onCloseCreate?.()
+          }}
+          onCreated={(pid) => onOpen(pid)}
+        />
+      )}
     </div>
   )
 }

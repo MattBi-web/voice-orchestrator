@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useState } from 'react'
 import type { Agent, Catalog, ModelSettings, ToolBinding } from '../types'
 import { api, ApiError } from '../api'
 import { EligibilityBuilder } from './EligibilityBuilder'
@@ -6,6 +6,10 @@ import { ListEditor } from './ListEditor'
 import { KnowledgePicker } from './KnowledgePicker'
 import { ToolsEditor } from './ToolsEditor'
 import { ModelsEditor } from './ModelsEditor'
+import { PipelineStrip } from './PipelineStrip'
+import { resolve } from '../resolve'
+import { Orb } from './Orb'
+import { TopbarActions } from '../shell'
 import { useOwner } from '../auth'
 import { describeRule } from './LevelChip'
 
@@ -82,48 +86,13 @@ function fromAgent(a: Agent): FormState {
   }
 }
 
-type Tab = 'behavior' | 'routing' | 'models' | 'tools' | 'knowledge'
-
-const TABS: { id: Tab; label: string }[] = [
-  { id: 'behavior', label: 'Behavior' },
-  { id: 'routing', label: 'Routing' },
-  { id: 'models', label: 'Models' },
-  { id: 'tools', label: 'Tools' },
-  { id: 'knowledge', label: 'Knowledge' },
-]
-
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`
 
-/** The agent at a glance, under its name: what the router checks, what it
- * can do, and where it sits. */
-function Summary({ agent }: { agent: Agent }): ReactNode {
-  const items: string[] = [
-    agent.eligibility ? `Gate: ${describeRule(agent.eligibility)}` : 'Open to every caller',
-    agent.triggers.length ? plural(agent.triggers.length, 'keyword') : 'No keywords',
-    agent.tools.length ? plural(agent.tools.length, 'tool') : 'No tools',
-    agent.knowledge.length ? plural(agent.knowledge.length, 'document') : 'No documents',
-  ]
-  if (agent.children.length) items.push(plural(agent.children.length, 'specialist') + ' below')
-  return (
-    <ul className="agent-head__facts">
-      {items.map((t) => (
-        <li key={t} className={t.startsWith('Gate') ? 'agent-head__fact agent-head__fact--gate' : 'agent-head__fact'}>
-          {t}
-        </li>
-      ))}
-    </ul>
-  )
-}
-
-export type AgentTab = Tab
-export type AgentDraft = FormState
+/** Where a piece of the pipeline is set: a section id on this page. */
+export type Section = 'prompt' | 'routing' | 'tools' | 'knowledge' | 'models'
 
 interface Props {
   pid: string
-  tab?: Tab
-  onTab?: (tab: Tab) => void
-  /** Called with the form's current values, saved or not. */
-  onDraft?: (draft: FormState) => void
   settings: ModelSettings
   catalog: Catalog | null
   mode: 'create' | 'edit'
@@ -141,9 +110,6 @@ interface Props {
 
 export function AgentForm({
   pid,
-  tab: controlledTab,
-  onTab,
-  onDraft,
   settings,
   catalog,
   mode,
@@ -160,73 +126,46 @@ export function AgentForm({
   const owner = useOwner()
   const start = () => (initial ? fromAgent(initial) : blank())
   const [state, setState] = useState<FormState>(start)
-  const [ownTab, setOwnTab] = useState<Tab>('behavior')
-  // The project page can drive the tab (its pipeline opens the right one).
-  const tab = controlledTab ?? ownTab
-  const setTab = (t: Tab) => (onTab ? onTab(t) : setOwnTab(t))
-  useEffect(() => {
-    onDraft?.(state)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state])
   const dirty = JSON.stringify(state) !== JSON.stringify(start())
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [savedAt, setSavedAt] = useState<number | null>(null)
 
-  const update = (patch: Partial<FormState>) => setState((s) => ({ ...s, ...patch }))
+  const update = (patch: Partial<FormState>) => {
+    setSavedAt(null)
+    setState((s) => ({ ...s, ...patch }))
+  }
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
+  const save = async () => {
+    if (saving) return
     setError(null)
     setSaving(true)
     try {
-      const voiceId = state.voice_id.trim()
-      const models = {
+      const body = {
+        name: state.name,
+        description: state.description,
+        system_prompt: state.system_prompt,
+        eligibility: state.eligibility,
+        triggers: state.triggers.filter((t) => t.trim() !== ''),
+        tools: state.tools.filter((t) => t.id.trim() !== ''),
+        knowledge: state.knowledge.filter((k) => k.trim() !== ''),
+        first_message: state.first_message,
+        llm_provider: state.llm_provider,
+        llm_model: state.llm_model,
+        llm_temperature: state.llm_temperature,
+        voice_id: state.voice_id.trim(),
+        voice_stability: state.voice_stability,
+        voice_speed: state.voice_speed,
         tts_provider: state.tts_provider,
         tts_model: state.tts_model,
         stt_provider: state.stt_provider,
         stt_model: state.stt_model,
         stt_language: state.stt_language,
       }
-      if (mode === 'create') {
-        await api.createAgent(pid, {
-          ...models,
-          id: state.id.trim(),
-          parent_id: parentId ?? null,
-          name: state.name,
-          description: state.description,
-          system_prompt: state.system_prompt,
-          eligibility: state.eligibility,
-          triggers: state.triggers.filter((t) => t.trim() !== ''),
-          tools: state.tools.filter((t) => t.id.trim() !== ''),
-          knowledge: state.knowledge.filter((k) => k.trim() !== ''),
-          first_message: state.first_message,
-          llm_provider: state.llm_provider,
-          llm_model: state.llm_model,
-          llm_temperature: state.llm_temperature,
-          voice_id: voiceId,
-          voice_stability: state.voice_stability,
-          voice_speed: state.voice_speed,
-        })
-      } else if (initial) {
-        await api.updateAgent(pid, initial.id, {
-          ...models,
-          name: state.name,
-          description: state.description,
-          system_prompt: state.system_prompt,
-          eligibility: state.eligibility,
-          triggers: state.triggers.filter((t) => t.trim() !== ''),
-          tools: state.tools.filter((t) => t.id.trim() !== ''),
-          knowledge: state.knowledge.filter((k) => k.trim() !== ''),
-          first_message: state.first_message,
-          llm_provider: state.llm_provider,
-          llm_model: state.llm_model,
-          llm_temperature: state.llm_temperature,
-          voice_id: voiceId,
-          voice_stability: state.voice_stability,
-          voice_speed: state.voice_speed,
-        })
-      }
+      if (mode === 'create') await api.createAgent(pid, { ...body, id: state.id.trim(), parent_id: parentId ?? null })
+      else if (initial) await api.updateAgent(pid, initial.id, body)
+      setSavedAt(Date.now())
       onSaved()
     } catch (err) {
       setError(err instanceof ApiError ? err.message : String(err))
@@ -235,9 +174,21 @@ export function AgentForm({
     }
   }
 
-  const handleDelete = async () => {
+  // ⌘S / Ctrl+S saves, like an editor.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's' && owner) {
+        e.preventDefault()
+        if (dirty || mode === 'create') save()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  })
+
+  const remove = async () => {
     if (!initial) return
-    if (!confirm(`Delete agent "${initial.id}"? This can't be undone.`)) return
+    if (!confirm(`Delete "${initial.name || initial.id}"? This can't be undone.`)) return
     setError(null)
     setDeleting(true)
     try {
@@ -250,15 +201,52 @@ export function AgentForm({
     }
   }
 
-  const crumbs = mode === 'edit' ? path.slice(0, -1) : path
-  const title = mode === 'create' ? `New specialist under ${parentName ?? parentId}` : initial?.name || initial?.id
+  const jump = (section: Section) => document.getElementById(`agent-${section}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  const parent = mode === 'create' ? path.at(-1) : path.at(-2)
+  const isRoot = mode === 'edit' && path.length <= 1
+  const title = mode === 'create' ? 'New specialist' : initial?.name || initial?.id
 
   return (
-    <form className="agent-form" onSubmit={handleSubmit}>
-      <header className="agent-head">
-        {crumbs.length > 0 && (
-          <nav className="agent-head__path" aria-label="Position in the family">
-            {crumbs.map((a) => (
+    <form
+      className="editor"
+      onSubmit={(e) => {
+        e.preventDefault()
+        save()
+      }}
+    >
+      {owner && (
+        <TopbarActions>
+          {(dirty || mode === 'create') && (
+            <span className="topbar__note">{mode === 'create' ? 'Not created yet' : 'Unsaved changes'}</span>
+          )}
+          {savedAt && !dirty && <span className="topbar__note topbar__note--ok">Saved</span>}
+          {mode === 'create' ? (
+            <button type="button" className="btn-secondary" onClick={onCancel}>
+              Cancel
+            </button>
+          ) : (
+            dirty && (
+              <button type="button" className="btn-secondary" onClick={() => setState(start())}>
+                Discard
+              </button>
+            )
+          )}
+          <button
+            type="button"
+            className="btn-primary"
+            onClick={save}
+            disabled={saving || (mode === 'edit' && !dirty)}
+            title="⌘S"
+          >
+            {saving ? 'Saving…' : mode === 'create' ? 'Create agent' : 'Save'}
+          </button>
+        </TopbarActions>
+      )}
+
+      <header className="editor__head">
+        {path.length > (mode === 'create' ? 0 : 1) && (
+          <nav className="editor__path" aria-label="Position in the workflow">
+            {(mode === 'create' ? path : path.slice(0, -1)).map((a) => (
               <span key={a.id}>
                 <button type="button" className="btn-link" onClick={() => onSelectAgent?.(a.id)}>
                   {a.name || a.id}
@@ -268,124 +256,179 @@ export function AgentForm({
             ))}
           </nav>
         )}
-        <h2>
-          {title}
-          {mode === 'edit' && initial && <code className="agent-head__id">{initial.id}</code>}
-        </h2>
-        {mode === 'edit' && initial && initial.description && <p className="agent-head__desc">{initial.description}</p>}
-        {mode === 'edit' && initial && <Summary agent={initial} />}
+        <div className="editor__title">
+          <Orb seed={`${pid}/${initial?.id ?? state.id ?? 'new'}`} size={34} />
+          <h1>{title}</h1>
+          {mode === 'edit' && initial && <code className="editor__id">{initial.id}</code>}
+        </div>
+        {mode === 'create' && <p className="editor__lede">Under {parentName ?? parentId}. It answers when the router hands it a turn.</p>}
+        {mode === 'edit' && initial && <Facts agent={initial} />}
       </header>
-
-
-
-      <div className="agent-tabs" role="tablist" aria-label="Agent settings">
-        {TABS.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            role="tab"
-            aria-selected={tab === t.id}
-            className={tab === t.id ? 'agent-tab agent-tab--active' : 'agent-tab'}
-            onClick={() => setTab(t.id)}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
 
       {error && <p className="error">{error}</p>}
 
-      <fieldset className="ro-fieldset agent-panels" disabled={!owner}>
-        <div role="tabpanel" hidden={tab !== 'behavior'}>
+      <PipelineStrip
+        resolved={resolve(state, settings, catalog, isRoot)}
+        toolCount={state.tools.filter((t) => t.id.trim()).length}
+        specialists={mode === 'edit' && initial ? initial.children.length : 0}
+        hasGate={mode === 'edit' && initial ? initial.children.some((c) => c.eligibility) : false}
+        onOpen={(target) => jump(target === 'models' ? 'models' : target)}
+      />
+
+      <div className="editor__grid">
+        <fieldset className="ro-fieldset editor__main" disabled={!owner}>
           {mode === 'create' && (
-            <div className="field">
-              <label>ID</label>
-              <input required value={state.id} onChange={(e) => update({ id: e.target.value })} placeholder="e.g. vip_support" />
-            </div>
+            <section className="editor__section">
+              <div className="editor__row">
+                <label className="field">
+                  <span className="field__label">Name</span>
+                  <input required value={state.name} onChange={(e) => update({ name: e.target.value })} placeholder="e.g. Bookings" />
+                </label>
+                <label className="field">
+                  <span className="field__label">ID</span>
+                  <input required value={state.id} onChange={(e) => update({ id: e.target.value })} placeholder="e.g. bookings" />
+                </label>
+              </div>
+            </section>
           )}
-          <div className="field">
-            <label>Name</label>
-            <input required value={state.name} onChange={(e) => update({ name: e.target.value })} />
-          </div>
-          <div className="field">
-            <label>Description</label>
+
+          <section className="editor__section" id="agent-prompt">
+            <div className="editor__label">
+              <h2>System prompt</h2>
+              <p>Who the agent is and how it talks. It writes every reply from this.</p>
+            </div>
             <textarea
-              rows={2}
-              value={state.description}
-              onChange={(e) => update({ description: e.target.value })}
-              placeholder="What this agent handles. The router reads it when keywords are not enough."
+              className="editor__prompt"
+              value={state.system_prompt}
+              onChange={(e) => update({ system_prompt: e.target.value })}
+              placeholder="You are the booking assistant of…"
+              aria-label="System prompt"
             />
-          </div>
-          <div className="field">
-            <label>System prompt</label>
-            <textarea rows={6} value={state.system_prompt} onChange={(e) => update({ system_prompt: e.target.value })} />
-          </div>
-          <div className="field">
-            <label>First message</label>
+          </section>
+
+          <section className="editor__section">
+            <div className="editor__label">
+              <h2>First message</h2>
+              <p>What the agent says before the caller speaks. Leave it empty to wait for the caller.</p>
+            </div>
             <textarea
               rows={2}
               value={state.first_message}
               onChange={(e) => update({ first_message: e.target.value })}
-              placeholder="What this agent says before the caller speaks. Leave empty to stay silent."
+              placeholder={isRoot ? 'Buongiorno, come posso aiutarla?' : 'Usually empty for a specialist: it answers the turn it was handed.'}
+              aria-label="First message"
             />
-          </div>
-        </div>
+          </section>
 
-        <div role="tabpanel" hidden={tab !== 'routing'}>
-          <p className="agent-panels__lede">
-            How the router reaches this agent from {mode === 'create' ? parentName ?? parentId : crumbs.at(-1)?.name ?? 'the line'}: the gate
-            first, then the keywords. If neither settles it, a model reads the description.
-          </p>
-          <EligibilityBuilder value={state.eligibility} onChange={(eligibility) => update({ eligibility })} />
-          <ListEditor
-            label="Keywords that route the call here"
-            values={state.triggers}
-            placeholder="e.g. roaming"
-            onChange={(triggers) => update({ triggers })}
-          />
-        </div>
-
-        <div role="tabpanel" hidden={tab !== 'models'}>
-          <p className="agent-panels__lede">
-            Each piece uses the project’s model unless you override it here. The voice and the speech-to-text switch when
-            the call reaches this agent.
-          </p>
-          <ModelsEditor mode="agent" value={state} project={settings} catalog={catalog} onChange={(patch) => update(patch as Partial<FormState>)} />
-        </div>
-
-        <div role="tabpanel" hidden={tab !== 'tools'}>
-          <ToolsEditor values={state.tools} availableTools={availableTools} onChange={(tools) => update({ tools })} />
-        </div>
-
-        <div role="tabpanel" hidden={tab !== 'knowledge'}>
-          <KnowledgePicker values={state.knowledge} onChange={(knowledge) => update({ knowledge })} />
-        </div>
-      </fieldset>
-
-      {owner && (
-        <div className={dirty || mode === 'create' ? 'form-actions form-actions--dirty' : 'form-actions'}>
-          <button type="submit" disabled={saving || (mode === 'edit' && !dirty)}>
-            {saving ? 'Saving…' : mode === 'create' ? 'Create agent' : 'Save changes'}
-          </button>
-          {mode === 'create' ? (
-            <button type="button" className="btn-secondary" onClick={onCancel}>
-              Cancel
-            </button>
-          ) : (
-            dirty && (
-              <button type="button" className="btn-secondary" onClick={() => setState(start())}>
-                Discard changes
-              </button>
-            )
-          )}
-          {dirty && mode === 'edit' && <span className="form-actions__note">Unsaved changes</span>}
           {mode === 'edit' && (
-            <button type="button" className="btn-danger" onClick={handleDelete} disabled={deleting}>
-              {deleting ? 'Deleting…' : 'Delete agent'}
-            </button>
+            <section className="editor__section">
+              <div className="editor__label">
+                <h2>Name and description</h2>
+                <p>The router’s language model reads the description when keywords can’t decide.</p>
+              </div>
+              <label className="field">
+                <span className="field__label">Name</span>
+                <input required value={state.name} onChange={(e) => update({ name: e.target.value })} />
+              </label>
+              <label className="field">
+                <span className="field__label">Description</span>
+                <textarea rows={2} value={state.description} onChange={(e) => update({ description: e.target.value })} />
+              </label>
+            </section>
           )}
-        </div>
-      )}
+          {mode === 'create' && (
+            <section className="editor__section">
+              <div className="editor__label">
+                <h2>Description</h2>
+                <p>What this agent handles. The router’s language model reads it when keywords can’t decide.</p>
+              </div>
+              <textarea rows={2} value={state.description} onChange={(e) => update({ description: e.target.value })} aria-label="Description" />
+            </section>
+          )}
+
+          <section className="editor__section" id="agent-routing">
+            <div className="editor__label">
+              <h2>How calls reach this agent</h2>
+              <p>
+                {isRoot
+                  ? 'The receptionist answers first, so it needs no gate or keywords. Set them on its specialists.'
+                  : `From ${parent?.name ?? 'its parent'}: the gate first, then the keywords. If neither settles it, the router’s model reads the description.`}
+              </p>
+            </div>
+            {!isRoot && (
+              <>
+                <EligibilityBuilder value={state.eligibility} onChange={(eligibility) => update({ eligibility })} />
+                <ListEditor
+                  label="Keywords"
+                  values={state.triggers}
+                  placeholder="e.g. roaming"
+                  onChange={(triggers) => update({ triggers })}
+                />
+              </>
+            )}
+          </section>
+
+          <section className="editor__section" id="agent-tools">
+            <div className="editor__label">
+              <h2>Tools</h2>
+              <p>Actions the agent can take before it replies: hand over to a human, end the call, a webhook, an MCP server.</p>
+            </div>
+            <ToolsEditor values={state.tools} availableTools={availableTools} onChange={(tools) => update({ tools })} />
+          </section>
+
+          <section className="editor__section" id="agent-knowledge">
+            <div className="editor__label">
+              <h2>Knowledge</h2>
+              <p>Documents the agent searches with the knowledge tool. Manage them under Knowledge.</p>
+            </div>
+            <KnowledgePicker values={state.knowledge} onChange={(knowledge) => update({ knowledge })} />
+          </section>
+
+          {owner && mode === 'edit' && !isRoot && (
+            <section className="editor__section editor__danger">
+              <div className="editor__label">
+                <h2>Delete this agent</h2>
+                <p>Its specialists have to be moved or deleted first. Recorded calls are kept.</p>
+              </div>
+              <button type="button" className="btn-danger" onClick={remove} disabled={deleting}>
+                {deleting ? 'Deleting…' : `Delete ${initial?.name || initial?.id}`}
+              </button>
+            </section>
+          )}
+        </fieldset>
+
+        <aside className="editor__side" id="agent-models">
+          <fieldset className="ro-fieldset" disabled={!owner}>
+            <ModelsEditor
+              mode="agent"
+              compact
+              value={state}
+              project={settings}
+              catalog={catalog}
+              onChange={(patch) => update(patch as Partial<FormState>)}
+            />
+          </fieldset>
+        </aside>
+      </div>
     </form>
+  )
+}
+
+function Facts({ agent }: { agent: Agent }) {
+  const items: { text: string; gate?: boolean }[] = [
+    agent.eligibility ? { text: `Gate: ${describeRule(agent.eligibility)}`, gate: true } : { text: 'Open to every caller' },
+    { text: agent.triggers.length ? plural(agent.triggers.length, 'keyword') : 'No keywords' },
+    { text: agent.tools.length ? plural(agent.tools.length, 'tool') : 'No tools' },
+    { text: agent.knowledge.length ? plural(agent.knowledge.length, 'document') : 'No documents' },
+  ]
+  if (agent.children.length) items.push({ text: plural(agent.children.length, 'specialist') + ' below' })
+  return (
+    <ul className="editor__facts">
+      {items.map((t) => (
+        <li key={t.text} className={t.gate ? 'chip chip--gate' : 'chip'}>
+          {t.text}
+        </li>
+      ))}
+    </ul>
   )
 }

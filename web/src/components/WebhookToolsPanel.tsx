@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { WebhookExecution, WebhookMethod, WebhookParam, WebhookTool } from '../types'
 import { api, ApiError } from '../api'
 import { KeyValueEditor } from './KeyValueEditor'
@@ -288,14 +288,23 @@ interface Props {
   // /api/tools — a tool added here must show up as "webhook:<name>" in
   // ToolsEditor's dropdown immediately, with no reload of the page.
   onChanged: () => void
+  /** Bumped by the Tools page's "Add …" tile: open the create form here. */
+  createSignal?: number
 }
 
-export function WebhookToolsPanel({ onChanged }: Props) {
+export function WebhookToolsPanel({ onChanged, createSignal = 0 }: Props) {
+  const panelRef = useRef<HTMLElement | null>(null)
   const owner = useOwner()
   const [tools, setTools] = useState<WebhookTool[]>([])
   const [selection, setSelection] = useState<Selection>({ kind: 'none' })
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    if (!createSignal) return
+    setSelection({ kind: 'create' })
+    panelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }, [createSignal])
 
   const load = () => {
     api
@@ -321,7 +330,7 @@ export function WebhookToolsPanel({ onChanged }: Props) {
   const editing = selection.kind === 'edit' ? tools.find((t) => t.name === selection.name) : undefined
 
   return (
-    <section className="mcp-panel webhook-panel">
+    <section className="mcp-panel webhook-panel" ref={panelRef}>
       <div className="mcp-panel__header">
         <h2>Webhooks</h2>
         {owner && selection.kind === 'none' && (

@@ -14,7 +14,7 @@ export type ModelFields = Partial<ModelSettings>
 type Section = 'stt' | 'router' | 'llm' | 'tts'
 
 const SECTIONS: { id: Section; title: string; what: string; component: Component }[] = [
-  { id: 'stt', title: 'Speech to text', what: 'Turns what the caller says into text.', component: 'stt' },
+  { id: 'stt', title: 'Speech recognition', what: 'Speech to text: turns what the caller says into text.', component: 'stt' },
   {
     id: 'router',
     title: 'Router model',
@@ -22,7 +22,7 @@ const SECTIONS: { id: Section; title: string; what: string; component: Component
     component: 'llm',
   },
   { id: 'llm', title: 'Language model', what: 'Writes the agent’s replies.', component: 'llm' },
-  { id: 'tts', title: 'Text to speech', what: 'The voice the caller hears.', component: 'tts' },
+  { id: 'tts', title: 'Voice', what: 'Text to speech: the voice the caller hears.', component: 'tts' },
 ]
 
 const FIELDS: Record<Section, (keyof ModelSettings)[]> = {
@@ -52,12 +52,18 @@ interface Props {
   project: ModelSettings
   catalog: Catalog | null
   onChange: (patch: ModelFields) => void
+  /** Narrow column (agent page): voice first, one field per row. */
+  compact?: boolean
 }
 
-export function ModelsEditor({ mode, value, project, catalog, onChange }: Props) {
-  const sections = SECTIONS.filter((s) => mode === 'project' || s.id !== 'router')
+const COMPACT_ORDER: Section[] = ['tts', 'stt', 'llm']
+
+export function ModelsEditor({ mode, value, project, catalog, onChange, compact = false }: Props) {
+  const sections = compact
+    ? COMPACT_ORDER.map((id) => SECTIONS.find((s) => s.id === id)!).filter((s) => mode === 'project' || s.id !== 'router')
+    : SECTIONS.filter((s) => mode === 'project' || s.id !== 'router')
   return (
-    <div className="models">
+    <div className={compact ? 'models models--compact' : 'models'}>
       {sections.map((section) => (
         <ModelSection key={section.id} section={section} mode={mode} value={value} project={project} catalog={catalog} onChange={onChange} />
       ))}
@@ -111,7 +117,7 @@ function ModelSection({
               aria-pressed={!overridden}
               onClick={() => onChange(Object.fromEntries(keys.map((k) => [k, isNumeric(k) ? null : ''])))}
             >
-              Project default
+              Default
             </button>
             <button
               type="button"

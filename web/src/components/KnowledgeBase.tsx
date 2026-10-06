@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { KnowledgeDoc, KnowledgeDocDetail, KnowledgeHit } from '../types'
 import { api, ApiError } from '../api'
 import { useOwner } from '../auth'
+import { Icon } from './Icon'
 
 /** Blocco 5 — the knowledge base tab. Documents are the files in
  * data/knowledge/ (the same ones the CLI and the voice worker read); this tab
@@ -10,7 +11,7 @@ import { useOwner } from '../auth'
  * — through the same search the knowledge_lookup tool runs mid-call. */
 
 type AddMode = 'text' | 'file' | 'url'
-type Pane = { kind: 'doc'; name: string } | { kind: 'add' } | { kind: 'none' }
+type Pane = { kind: 'doc'; name: string } | { kind: 'add'; mode: AddMode } | { kind: 'none' }
 
 const SOURCE_LABEL: Record<string, string> = { text: 'Pasted text', file: 'Uploaded file', url: 'Web page', '': 'Bundled with the demo' }
 
@@ -22,8 +23,8 @@ function errText(err: unknown) {
   return err instanceof ApiError ? err.message : String(err)
 }
 
-function AddDocument({ onAdded }: { onAdded: (name: string) => void }) {
-  const [mode, setMode] = useState<AddMode>('text')
+function AddDocument({ onAdded, initialMode = 'text' }: { onAdded: (name: string) => void; initialMode?: AddMode }) {
+  const [mode, setMode] = useState<AddMode>(initialMode)
   const [name, setName] = useState('')
   const [content, setContent] = useState('')
   const [url, setUrl] = useState('')
@@ -103,7 +104,7 @@ function AddDocument({ onAdded }: { onAdded: (name: string) => void }) {
         <label>Name {mode === 'url' && '(optional: taken from the page title)'}</label>
         <input
           required={mode !== 'url'}
-          placeholder="es. orari_negozi.md"
+          placeholder="e.g. shop_hours.md"
           value={name}
           onChange={(e) => setName(e.target.value)}
         />
@@ -397,13 +398,28 @@ export function KnowledgeBase() {
 
   return (
     <div className="kb">
-      <div className="dashboard__toolbar">
-        {owner && (
-          <button type="button" onClick={() => setPane({ kind: 'add' })}>
-            Add document
-          </button>
-        )}
-      </div>
+      {owner && (
+        <div className="tiles">
+          {(
+            [
+              ['url', 'globe', 'Add URL'],
+              ['file', 'file', 'Add file'],
+              ['text', 'text', 'Create text'],
+            ] as const
+          ).map(([mode, icon, label]) => (
+            <button
+              key={mode}
+              type="button"
+              className="tile"
+              aria-pressed={pane.kind === 'add' && pane.mode === mode}
+              onClick={() => setPane({ kind: 'add', mode })}
+            >
+              <Icon name={icon} />
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
       {error && <p className="error">{error}</p>}
       {loading ? (
         <p>Loading…</p>
@@ -443,6 +459,8 @@ export function KnowledgeBase() {
             <SearchPreview docs={docs} currentDoc={currentDoc} onOpenHit={(h) => open(h.document, h.index)} />
             {pane.kind === 'add' ? (
               <AddDocument
+                key={pane.mode}
+                initialMode={pane.mode}
                 onAdded={async (name) => {
                   await load()
                   open(name)
